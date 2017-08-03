@@ -4,4 +4,5 @@ int main()
 {
     initGLog( "push_server" );
     PushServer::getInstance()->start();
+    return 0;
 }

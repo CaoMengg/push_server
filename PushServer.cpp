@@ -23,53 +23,27 @@ SocketConnection* PushServer::getConnection( int intFd )
     return it->second;
 }
 
-void PushServer::writeCB( ev::io &watcher, int revents )
+void uvAllocBuffer( uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf )
 {
-    (void)revents;
-
-    SocketConnection* pConnection = getConnection( watcher.fd );
-    if( pConnection == NULL )
-    {
-        return;
-    }
-
-    SocketBuffer *outBuf = NULL;
-    while( ! pConnection->outBufList.empty() )
-    {
-        outBuf = pConnection->outBufList.front();
-        if( outBuf->intSentLen < outBuf->intLen )
-        {
-            int n = send( pConnection->intFd, outBuf->data + outBuf->intSentLen, outBuf->intLen - outBuf->intSentLen, 0 );
-            if( n > 0 )
-            {
-                outBuf->intSentLen += n;
-            } else {
-                if( errno==EAGAIN || errno==EWOULDBLOCK )
-                {
-                    return;
-                } else {
-                    LOG(WARNING) << "send fail, fd=" << pConnection->intFd;
-                    delete pConnection;
-                    return;
-                }
-            }
-        }
-
-        if( outBuf->intSentLen >= outBuf->intLen )
-        {
-            pConnection->outBufList.pop_front();
-            delete outBuf;
-        }
-    }
-
-    pConnection->writeWatcher->stop();
-    pConnection->writeTimer->stop();
-    LOG(INFO) << "ack query succ, fd=" << pConnection->intFd;
+    (void)handle;
+    *buf = uv_buf_init( (char*)malloc(suggested_size), suggested_size );
 }
 
-static size_t curlWriteCB(void *ptr, size_t size, size_t nmemb, void *data)
+void clientTimeoutCB( uv_timer_t *timer )
+{
+    SocketConnection* pConnection = (SocketConnection *)(timer->data);
+    delete pConnection;
+    LOG(WARNING) << "client timeout";
+}
+
+/*static size_t curlWriteCB(void *ptr, size_t size, size_t nmemb, void *data)
 {
     size_t realsize = size * nmemb;
+    if( realsize <= 0 )
+    {
+        return realsize;
+    }
+
     SocketConnection * pConnection = (SocketConnection *)data;
     while( int(pConnection->upstreamBuf->intLen+realsize) > pConnection->upstreamBuf->intSize ) {
         pConnection->upstreamBuf->enlarge();
@@ -77,15 +51,31 @@ static size_t curlWriteCB(void *ptr, size_t size, size_t nmemb, void *data)
     memcpy( pConnection->upstreamBuf->data + pConnection->upstreamBuf->intLen, ptr, realsize );
     pConnection->upstreamBuf->intLen += realsize;
     return realsize;
+}*/
+
+void writeCallback( uv_write_t *req, int status ) {
+    SocketConnection* pConnection = (SocketConnection *)(req->data);
+
+    if( status < 0 ) {
+        LOG(WARNING) << "write fail, error:" << uv_strerror( status );
+        delete pConnection;
+    } else {
+        uv_timer_stop( pConnection->clientTimer );
+    }
 }
 
 void PushServer::parseQuery( SocketConnection *pConnection )
 {
     rapidjson::Document docJson;
-    docJson.Parse( (const char*) pConnection->inBuf->data );
-    LOG(INFO) << docJson[0]["push_url"].GetString();
+    docJson.Parse( (const char*)pConnection->inBuf->data );
 
-    CURL *easy = curl_easy_init();
+    int size = 5;
+    pConnection->uvOutBuf = uv_buf_init( (char*)malloc(size), size );
+    memcpy(pConnection->uvOutBuf.base, "abcd", size);
+    uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
+    uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
+
+    /*CURL *easy = curl_easy_init();
     curl_easy_setopt(easy, CURLOPT_URL, docJson[0]["push_url"].GetString());
     curl_easy_setopt(easy, CURLOPT_POSTFIELDS, docJson[0]["push_data"].GetString());
     curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curlWriteCB);
@@ -95,95 +85,47 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     //curl_easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
     //curl_easy_setopt(easy, CURLOPT_LOW_SPEED_TIME, 3L);
     //curl_easy_setopt(easy, CURLOPT_LOW_SPEED_LIMIT, 10L);
-    curl_multi_add_handle(multi, easy);
+    curl_multi_add_handle(multi, easy);*/
 }
 
-void PushServer::readCB( ev::io &watcher, int revents )
+void PushServer::readCB( SocketConnection* pConnection, ssize_t nread, const uv_buf_t *buf )
 {
-    (void)revents;
-
-    SocketConnection* pConnection = getConnection( watcher.fd );
-    if( pConnection == NULL )
-    {
-        return;
-    }
-
-    if( pConnection->inBuf->intLen >= pConnection->inBuf->intSize )
+    while( pConnection->inBuf->intSize < pConnection->inBuf->intLen+nread )
     {
         pConnection->inBuf->enlarge();
     }
+    memcpy( pConnection->inBuf->data+pConnection->inBuf->intLen, buf->base, nread );
+    pConnection->inBuf->intLen += nread;
 
-    int n = recv( pConnection->intFd, pConnection->inBuf->data + pConnection->inBuf->intLen, pConnection->inBuf->intSize - pConnection->inBuf->intLen, 0 );
-    if( n > 0 )
+    if( pConnection->inBuf->data[pConnection->inBuf->intLen-1] == '\0' )
     {
-        pConnection->inBuf->intLen += n;
-        if( pConnection->inBuf->data[pConnection->inBuf->intLen-1] == '\0' )
-        {
-            LOG(INFO) << "recv query, fd=" << pConnection->intFd;
-            pConnection->readTimer->stop();
-            parseQuery( pConnection );
-        }
-    } else if( n == 0 )
-    {
-        // client close normally
-        delete pConnection;
-        return;
-    } else {
-        if( errno==EAGAIN || errno==EWOULDBLOCK )
-        {
-            return;
-        } else {
-            LOG(WARNING) << "recv fail, fd=" << pConnection->intFd;
-            delete pConnection;
-            return;
-        }
+        LOG(INFO) << "recv query";
+        uv_timer_stop( pConnection->clientTimer );
+        parseQuery( pConnection );
     }
 }
 
-void PushServer::acceptCB( ev::io &watcher, int revents )
+void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
 {
-    (void)watcher;
-    (void)revents;
+    SocketConnection* pConnection = (SocketConnection *)(stream->data);
+    pConnection->status = csConnected;
 
-    struct sockaddr_storage ss;
-    socklen_t slen = sizeof( ss );
-    int acceptFd = accept( intListenFd, (struct sockaddr*)&ss, &slen );
-    if( acceptFd == -1 )
-    {
-        if( errno==EAGAIN || errno==EWOULDBLOCK )
-        {
-            return;
-        } else {
-            LOG(WARNING) << "accept fail";
-            return;
+    if( nread < 0 ) {
+        if( nread == UV_EOF ) {
+            // client close normally
+            delete pConnection;
         }
+    } else if ( nread > 0 ) {
+        PushServer::getInstance()->readCB( pConnection, nread, buf );
     }
 
-    int flag = fcntl(acceptFd, F_GETFL, 0);
-    fcntl(acceptFd, F_SETFL, flag | O_NONBLOCK);
-    LOG(INFO) << "accept succ, fd=" << acceptFd;
-
-    SocketConnection* pConnection = new SocketConnection();
-    pConnection->intFd = acceptFd;
-    pConnection->status = csConnected;
-    mapConnection[ acceptFd ] = pConnection;
-
-    pConnection->readWatcher->set( pConnection->intFd, ev::READ );
-    pConnection->readWatcher->set<PushServer, &PushServer::readCB>( this );
-    pConnection->readWatcher->start();
-
-    pConnection->readTimer->set( pConnection->readTimeout, 0.0 );
-    pConnection->readTimer->set<SocketConnection, &SocketConnection::readTimeoutCB>( pConnection );
-    pConnection->readTimer->start();
-
-    pConnection->writeWatcher->set( pConnection->intFd, ev::WRITE );
-    pConnection->writeWatcher->set<PushServer, &PushServer::writeCB>( this );
-
-    pConnection->writeTimer->set( pConnection->writeTimeout, 0.0 );
-    pConnection->writeTimer->set<SocketConnection, &SocketConnection::writeTimeoutCB>( pConnection );
+    if( buf->base )
+    {
+        free(buf->base);
+    }
 }
 
-static void check_multi_info()
+/*static void checkMultiInfo()
 {
     CURLMsg *msg;
     int msgs_left;
@@ -194,7 +136,7 @@ static void check_multi_info()
         if( msg->msg == CURLMSG_DONE ) {
             easy = msg->easy_handle;
             SocketConnection *pConnection;
-            curl_easy_getinfo(easy, CURLINFO_PRIVATE, &pConnection);
+            curl_easy_getinfo( easy, CURLINFO_PRIVATE, &pConnection );
 
             res = msg->data.result;
             if( res == 0 ) {
@@ -207,89 +149,100 @@ static void check_multi_info()
                 pConnection->inBuf->intLen = 0;
                 pConnection->inBuf->intExpectLen = 0;
 
-                pConnection->writeWatcher->start();
-                pConnection->writeTimer->start();
+                //pConnection->writeWatcher->start();
+                //pConnection->writeTimer->start();
             }
             else {
                 delete pConnection;
             }
 
-            curl_multi_remove_handle(PushServer::getInstance()->multi, easy);
-            curl_easy_cleanup(easy);
+            curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
+            curl_easy_cleanup( easy );
         }
     }
 }
 
-void PushServer::curlSocketCB( ev::io &watcher, int revents )
+void curlSocketCB( uv_poll_t *watcher, int status, int revents )
 {
-    int action = (revents&ev::READ ? CURL_POLL_IN : 0) | (revents&ev::WRITE ? CURL_POLL_OUT : 0);
-    CURLMcode rc;
-    rc = curl_multi_socket_action(PushServer::getInstance()->multi, watcher.fd, action, &(PushServer::getInstance()->intCurlRunning));
-    if( rc != CURLM_OK ) {
-        // TODO
-    }
-    check_multi_info();
+    std::cout << 4 << std::endl;
+    int action = (revents&UV_READABLE ? CURL_POLL_IN : 0) | (revents&UV_WRITABLE ? CURL_POLL_OUT : 0);
+    SocketConnection *pConnection = (SocketConnection *)(watcher->data);
+    PushServer* pPushServer = PushServer::getInstance();
+    curl_multi_socket_action( pPushServer->multi, pConnection->upstreamFd, action, &(pPushServer->intCurlRunning));
+    checkMultiInfo();
 }
 
-static int curlSocketCallback(CURL *e, curl_socket_t s, int what, void *cbp, void *sockp)
+static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, void *sockp )
 {
+    std::cout << 3 << std::endl;
     (void)cbp;
     (void)sockp;
     SocketConnection *pConnection;
     curl_easy_getinfo( e, CURLINFO_PRIVATE, &pConnection );
 
-    if( what == CURL_POLL_REMOVE )
+    if( pConnection->upstreamFd <= 0 )
     {
-        pConnection->upstreamWatcher->stop();
+        pConnection->upstreamFd = s;
+        uv_poll_init_socket( pConnection->pLoop, pConnection->upstreamWatcher, s );
+    }
+
+    if( action == CURL_POLL_REMOVE )
+    {
+        uv_poll_stop( pConnection->upstreamWatcher );
     }
     else
     {
-        int kind = (what&CURL_POLL_IN ? ev::READ : 0) | (what&CURL_POLL_OUT ? ev::WRITE : 0);
-        pConnection->upstreamWatcher->stop();
-        pConnection->upstreamWatcher->set( s, kind );
-        pConnection->upstreamWatcher->set<PushServer, &PushServer::curlSocketCB>( PushServer::getInstance() );
-        pConnection->upstreamWatcher->start();
+        int kind = (action&CURL_POLL_IN ? UV_READABLE : 0) | (action&CURL_POLL_OUT ? UV_WRITABLE : 0);
+        uv_poll_start( pConnection->upstreamWatcher, kind, curlSocketCB );
     }
     return 0;
 }
 
-void PushServer::curlTimeoutCB( ev::timer &timer, int revents )
+void curlTimeoutCB( uv_timer_t *timer )
 {
+    std::cout << 2 << std::endl;
     (void)timer;
-    (void)revents;
-
-    CURLMcode rc;
-    rc = curl_multi_socket_action(PushServer::getInstance()->multi, CURL_SOCKET_TIMEOUT, 0, &(PushServer::getInstance()->intCurlRunning) );
-    if( rc != CURLM_OK ) {
-        // TODO
-    }
-    check_multi_info();
-
-    //std::cout << "curlTimeoutCB: " << PushServer::getInstance()->intCurlRunning << std::endl;
+    PushServer* pPushServer = PushServer::getInstance();
+    curl_multi_socket_action( pPushServer->multi, CURL_SOCKET_TIMEOUT, 0, &(pPushServer->intCurlRunning) );
+    checkMultiInfo();
 }
 
-static int curlTimerCallback(CURLM *multi, long timeout_ms, void *g)
+static int curlTimerCallback( CURLM *multi, long timeout_ms, void *g )
 {
-    //std::cout << "curlTimerCallback: " << timeout_ms << std::endl;
+    std::cout << 1 << std::endl;
     (void)multi;
     (void)g;
     PushServer* pPushServer = PushServer::getInstance();
-    pPushServer->curlMultiTimer->stop();
+    //uv_timer_stop( pPushServer->curlMultiTimer );
+    uv_timer_start( pPushServer->curlMultiTimer, curlTimeoutCB, timeout_ms, 0 );
 
-    if( timeout_ms == 0 ) {
-        pPushServer->curlTimeoutCB( *(pPushServer->curlMultiTimer), 0 );
-    } else {
-        double t = timeout_ms / 1000;
-        pPushServer->curlMultiTimer->set( t, 0.0 );
-        pPushServer->curlMultiTimer->set<PushServer, &PushServer::curlTimeoutCB>( pPushServer );
-        pPushServer->curlMultiTimer->start();
-    }
     return 0;
+}*/
+
+void PushServer::acceptCB()
+{
+    SocketConnection* pConnection = new SocketConnection( uvLoop );
+    uv_tcp_init( uvLoop, pConnection->clientWatcher );
+
+    if( uv_accept( (uv_stream_t*)uvServer, (uv_stream_t*)(pConnection->clientWatcher) ) == 0 ) {
+        pConnection->status = csAccepted;
+        uv_read_start( (uv_stream_t*)(pConnection->clientWatcher), uvAllocBuffer, readCallBack );
+        uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->readTimeout, 0 );
+    }
+}
+
+void acceptCallback( uv_stream_t *server, int status ) {
+    (void)server;
+    if( status < 0 ) {
+        LOG(WARNING) << "accept fail, error:" << uv_strerror( status );
+        return;
+    }
+    PushServer::getInstance()->acceptCB();
 }
 
 void PushServer::start()
 {
-    CURLcode res;
+    /*CURLcode res;
     res = curl_global_init( CURL_GLOBAL_ALL );
     if( res != CURLE_OK )
     {
@@ -305,38 +258,27 @@ void PushServer::start()
     curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, curlTimerCallback);
     curl_multi_setopt(multi, CURLMOPT_TIMERDATA, NULL);
     curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, curlSocketCallback);
-    curl_multi_setopt(multi, CURLMOPT_SOCKETDATA, NULL);
-
-    struct sockaddr_in sin;
-    sin.sin_family = AF_INET;
-    sin.sin_addr.s_addr = 0;
-    sin.sin_port = htons( intListenPort );
-
-    intListenFd = socket(AF_INET, SOCK_STREAM, 0);
-    int flag = 1;
-    setsockopt(intListenFd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(int));
-    flag = fcntl(intListenFd, F_GETFL, 0);
-    fcntl(intListenFd, F_SETFL, flag | O_NONBLOCK);
+    curl_multi_setopt(multi, CURLMOPT_SOCKETDATA, NULL);*/
 
     int intRet;
-    intRet = bind( intListenFd, (struct sockaddr*)&sin, sizeof(sin) );
-    if( intRet != 0 )
-    {
+    struct sockaddr_in addr;
+    uv_tcp_init( uvLoop, uvServer );
+    uv_ip4_addr( "0.0.0.0", intListenPort, &addr );
+
+    intRet = uv_tcp_bind( uvServer, (const struct sockaddr*)&addr, 0 );
+    if( intRet != 0 ) {
         LOG(WARNING) << "bind fail";
         return;
     }
 
-    intRet = listen( intListenFd, 255 );
-    if( intRet != 0 )
-    {
+    intRet = uv_listen( (uv_stream_t*)uvServer, 255, acceptCallback );
+    if( intRet != 0 ) {
         LOG(WARNING) << "listen fail";
         return;
     }
-    LOG(INFO) << "server start, listen port=" << intListenPort << " fd=" << intListenFd;
 
-    listenWatcher->set<PushServer, &PushServer::acceptCB>( this );
-    listenWatcher->start( intListenFd, ev::READ );
-    mainLoop.run( 0 );
+    LOG(INFO) << "server start, listen port=" << intListenPort;
+    uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_global_cleanup();
 }

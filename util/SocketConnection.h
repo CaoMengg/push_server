@@ -2,15 +2,14 @@
 #define SOCKETCONNECTION_H
 
 #include <stdio.h>
+#include <iostream>
 #include <string>
 #include <list>
 #include <stdlib.h>
 #include <unistd.h>
-#include <ev++.h>
+#include "uv.h"
 #include "GLog.h"
 #include "SocketBuffer.h"
-
-typedef std::list<SocketBuffer *> bufferList;
 
 enum enumConnectionStatus
 {
@@ -23,56 +22,59 @@ enum enumConnectionStatus
 class SocketConnection
 {
     public:
-        SocketConnection() {
+        SocketConnection( uv_loop_t *loop ) {
+            pLoop = loop;
             inBuf = new SocketBuffer( 1024 );
             upstreamBuf = new SocketBuffer( 1024 );
 
-            readWatcher = new ev::io();
-            writeWatcher = new ev::io();
-            readTimer = new ev::timer();
-            readTimer->data = this;
-            writeTimer = new ev::timer();
-            writeTimer->data = this;
+            clientWatcher = new uv_tcp_t();
+            clientWatcher->data = this;
 
-            upstreamWatcher = new ev::io();
+            clientTimer = new uv_timer_t();
+            clientTimer->data = this;
+            uv_timer_init( pLoop, clientTimer );
+
+            upstreamWatcher = new uv_poll_t();
+            upstreamWatcher->data = this;
+
+            writeReq = new uv_write_t();
+            writeReq->data = this;
         }
         ~SocketConnection() {
-            delete readWatcher;
-            delete writeWatcher;
-            delete readTimer;
-            delete writeTimer;
-
-            delete upstreamWatcher;
-
-            if( intFd ) {
-                close( intFd );
-            }
-
             delete inBuf;
             delete upstreamBuf;
 
-            while( ! outBufList.empty() ) {
-                delete outBufList.front();
-                outBufList.pop_front();
+            uv_close( (uv_handle_t *)clientWatcher, NULL );
+            delete clientWatcher;
+            uv_timer_stop( clientTimer );
+            delete clientTimer;
+
+            if( upstreamFd > 0 )
+            {
+                uv_close( (uv_handle_t *)upstreamWatcher, NULL );
+                delete upstreamWatcher;
             }
+
+            delete writeReq;
         }
-        void readTimeoutCB( ev::timer &timer, int revents );
-        void writeTimeoutCB( ev::timer &timer, int revents );
 
-        int intFd = 0;
         enumConnectionStatus status = csInit;
-        ev::io *readWatcher = NULL;
-        ev::io *writeWatcher = NULL;
-        ev::timer *readTimer = NULL;
-        ev::tstamp readTimeout = 3.0;
-        ev::timer *writeTimer = NULL;
-        ev::tstamp writeTimeout = 3.0;
+        int upstreamFd = 0;
 
-        ev::io *upstreamWatcher = NULL;
-
+        uv_loop_t *pLoop = NULL;
         SocketBuffer *inBuf = NULL;
         SocketBuffer *upstreamBuf = NULL;
-        bufferList outBufList;
+
+        uv_tcp_t *clientWatcher = NULL;
+        uv_timer_t *clientTimer = NULL;
+
+        uv_poll_t *upstreamWatcher = NULL;
+
+        uv_write_t *writeReq = NULL;
+        uv_buf_t uvOutBuf;
+
+        long readTimeout = 1000;
+        long writeTimeout = 1000;
 };
 
 #endif
