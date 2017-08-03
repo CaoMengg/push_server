@@ -4,10 +4,8 @@ $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 $connection = socket_connect($socket, '127.0.0.1', '9090');
 
 $arrData = array(
-    array(
-        'push_url' => 'http://test.myhug.cn/u/profile',
-        'push_data' => 'uId=7bf4a120e384fae695800177&yUId=yaa1c99e26cd34a57a4b99ff2374&sig=myhug20140108',
-    ),
+    'push_url' => 'http://test.myhug.cn/u/profile',
+    'push_data' => 'uId=7bf4a120e384fae695800177&yUId=yaa1c99e26cd34a57a4b99ff2374&sig=myhug20140108',
 );
 $strMsg = json_encode($arrData);
 $strMsg .= "\0";

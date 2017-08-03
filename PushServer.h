@@ -6,7 +6,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
-#include <ev++.h>
 
 #include <unistd.h>
 #include <string.h>
@@ -70,14 +69,9 @@ class PushServer
         uv_timer_t *curlMultiTimer = NULL;
         int intCurlRunning = 1;
 
-        SocketConnection* getConnection( int intFd );
         void start();
-
         void acceptCB();
-        void readCB( SocketConnection* pConnection, ssize_t nread, const uv_buf_t *buf );
-        void writeCB( ev::io &watcher, int revents );
-        //void curlSocketCB( ev::io &watcher, int revents );
-
+        void readCB( SocketConnection* pConnection, ssize_t nread );
         void parseQuery( SocketConnection *pConnection );
 };
 
