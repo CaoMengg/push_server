@@ -1,1 +1,5 @@
 listen: 9090
+
+apps:
+    baobao: "baobao.yaml"
+    avalon: "avalon.yaml"

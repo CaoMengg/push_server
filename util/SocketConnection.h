@@ -7,9 +7,13 @@
 #include <list>
 #include <stdlib.h>
 #include <unistd.h>
+
 #include "uv.h"
+#include "curl/curl.h"
 #include "GLog.h"
+#include "YamlConf.h"
 #include "SocketBuffer.h"
+#include "rapidjson/document.h"
 
 enum enumConnectionStatus
 {
@@ -39,6 +43,8 @@ class SocketConnection
 
             writeReq = new uv_write_t();
             writeReq->data = this;
+
+            reqData = new rapidjson::Document();
         }
         ~SocketConnection() {
             delete inBuf;
@@ -56,6 +62,7 @@ class SocketConnection
             }
 
             delete writeReq;
+            delete reqData;
         }
 
         enumConnectionStatus status = csInit;
@@ -68,10 +75,14 @@ class SocketConnection
         uv_tcp_t *clientWatcher = NULL;
         uv_timer_t *clientTimer = NULL;
 
+        CURL *upstreamHandle = NULL;
         uv_poll_t *upstreamWatcher = NULL;
 
         uv_write_t *writeReq = NULL;
         uv_buf_t uvOutBuf;
+
+        rapidjson::Document *reqData = NULL;
+        YamlConf *conf = NULL;
 
         long readTimeout = 1000;
         long writeTimeout = 1000;

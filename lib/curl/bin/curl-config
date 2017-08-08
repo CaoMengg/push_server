@@ -21,7 +21,7 @@
 #
 ###########################################################################
 
-prefix=/home/ubuntu/git/ocr_server/lib/curl
+prefix=/home/ubuntu/abc
 exec_prefix=${prefix}
 includedir=${prefix}/include
 cppflag_curl_staticlib=
@@ -89,13 +89,13 @@ while test $# -gt 0; do
         ;;
 
     --protocols)
-        for protocol in DICT FILE FTP FTPS GOPHER HTTP HTTPS IMAP IMAPS LDAP LDAPS POP3 POP3S RTMP RTSP SMB SMBS SMTP SMTPS TELNET TFTP; do
+        for protocol in DICT FILE FTP FTPS GOPHER HTTP HTTPS IMAP IMAPS POP3 POP3S RTSP SMB SMBS SMTP SMTPS TELNET TFTP; do
             echo "$protocol"
         done
         ;;
 
     --version)
-        echo libcurl 7.52.0
+        echo libcurl 7.54.1
         exit 0
         ;;
 
@@ -107,20 +107,20 @@ while test $# -gt 0; do
         # dash as that's used for things like version 1.2.3-CVS
         cpatch=`echo $checkfor | cut -d. -f3 | cut -d- -f1`
         checknum=`echo "$cmajor*256*256 + $cminor*256 + ${cpatch:-0}" | bc`
-        numuppercase=`echo 073400 | tr 'a-f' 'A-F'`
+        numuppercase=`echo 073601 | tr 'a-f' 'A-F'`
         nownum=`echo "obase=10; ibase=16; $numuppercase" | bc`
 
         if test "$nownum" -ge "$checknum"; then
           # silent success
           exit 0
         else
-          echo "requested version $checkfor is newer than existing 7.52.0"
+          echo "requested version $checkfor is newer than existing 7.54.1"
           exit 1
         fi
         ;;
 
     --vernum)
-        echo 073400
+        echo 073601
         exit 0
         ;;
 
@@ -148,7 +148,7 @@ while test $# -gt 0; do
            CURLLIBDIR=""
         fi
         if test "Xno" = "Xyes"; then
-          echo ${CURLLIBDIR}-lcurl -lrtmp -lssl -lcrypto -lssl -lcrypto -llber -lldap -lz
+          echo ${CURLLIBDIR}-lcurl -lssl -lcrypto -lz
         else
           echo ${CURLLIBDIR}-lcurl
         fi
@@ -156,7 +156,7 @@ while test $# -gt 0; do
 
     --static-libs)
         if test "Xyes" != "Xno" ; then
-          echo ${exec_prefix}/lib/libcurl.a  -lrtmp -lssl -lcrypto -lssl -lcrypto -llber -lldap -lz
+          echo ${exec_prefix}/lib/libcurl.a  -lssl -lcrypto -lz
         else
           echo "curl was built with static libraries disabled" >&2
           exit 1
@@ -164,7 +164,7 @@ while test $# -gt 0; do
         ;;
 
     --configure)
-        echo " '--prefix=/home/ubuntu/git/ocr_server/lib/curl'"
+        echo " '--prefix=/home/ubuntu/abc'"
         ;;
 
     *)

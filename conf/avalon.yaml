@@ -1,0 +1,3 @@
+xiaomi:
+    api: "https://api.xmpush.xiaomi.com/v2/message/regid"
+    app_key: "4QOxU+ZwGIVe2EA64GQjEg=="

@@ -15,8 +15,8 @@
 #include <map>
 
 #include "rapidjson/document.h"
-#include "rapidjson/writer.h"
-#include "rapidjson/stringbuffer.h"
+//#include "rapidjson/writer.h"
+//#include "rapidjson/stringbuffer.h"
 
 #include "uv.h"
 #include "curl/curl.h"
@@ -24,17 +24,14 @@
 #include "YamlConf.h"
 #include "SocketConnection.h"
 
-typedef std::map<int, SocketConnection*> connectionMap;
-typedef std::pair<int, SocketConnection*> connectionPair;
+typedef std::map<std::string, YamlConf*> confMap;
+typedef std::map<std::string, YamlConf*>::iterator confIterator;
 
 class PushServer
 {
     private:
         PushServer()
         {
-            config = new YamlConf( "conf/push_server.yaml" );
-            intListenPort = config->getInt( "listen" );
-
             uvLoop = uv_default_loop();
             uvServer = new uv_tcp_t();
 
@@ -44,7 +41,11 @@ class PushServer
         }
         ~PushServer()
         {
-            delete config;
+            if( mainConf )
+            {
+                delete mainConf;
+            }
+
             uv_close( (uv_handle_t *)uvServer, NULL );
             delete uvServer;
             uv_timer_stop( curlMultiTimer );
@@ -54,11 +55,14 @@ class PushServer
                 curl_multi_cleanup( multi );
             }
         }
+        int _LoadConf();
+        int getConnectionConf( SocketConnection *pConnection );
+        int getConnectionHandle( SocketConnection *pConnection );
 
         static PushServer *pInstance;
-        YamlConf *config = NULL;
+        YamlConf *mainConf = NULL;
+        confMap mapConf;
         int intListenPort = 0;
-        connectionMap mapConnection;
 
     public:
         static PushServer *getInstance();
