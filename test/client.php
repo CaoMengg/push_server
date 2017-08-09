@@ -19,5 +19,15 @@ if( socket_write( $socket, $strMsg, $intLen ) != $intLen ) {
 echo "send query succ\n";
 
 $strResult = socket_read($socket, 10240);
-var_dump( $strResult );
+if( empty( $strResult ) ) {
+    echo "res is empty\n";
+} else {
+    $arrResult = json_decode( $strResult, true );
+    if( $arrResult == false ) {
+        echo "res is not json\n";
+    } else {
+        var_dump( $arrResult );
+    }
+}
+
 socket_close($socket); 

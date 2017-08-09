@@ -28,8 +28,8 @@ class SocketConnection
     public:
         SocketConnection( uv_loop_t *loop ) {
             pLoop = loop;
-            inBuf = new SocketBuffer( 1024 );
-            upstreamBuf = new SocketBuffer( 1024 );
+            inBuf = new SocketBuffer( 4096 );
+            upstreamBuf = new SocketBuffer( 4096 );
 
             clientWatcher = new uv_tcp_t();
             clientWatcher->data = this;
@@ -45,6 +45,7 @@ class SocketConnection
             writeReq->data = this;
 
             reqData = new rapidjson::Document();
+            resData = new rapidjson::Document();
         }
         ~SocketConnection() {
             delete inBuf;
@@ -63,6 +64,7 @@ class SocketConnection
 
             delete writeReq;
             delete reqData;
+            delete resData;
         }
 
         enumConnectionStatus status = csInit;
@@ -82,10 +84,14 @@ class SocketConnection
         uv_buf_t uvOutBuf;
 
         rapidjson::Document *reqData = NULL;
+        rapidjson::Document *resData = NULL;
+        std::string strAppName;
+        std::string strPushType;
+        std::string strReqSucc = "{\"errno\":0}";
         YamlConf *conf = NULL;
 
-        long readTimeout = 1000;
-        long writeTimeout = 1000;
+        long readTimeout = 100;
+        long writeTimeout = 100;
 };
 
 #endif

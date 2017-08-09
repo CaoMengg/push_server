@@ -77,6 +77,7 @@ class PushServer
         void acceptCB();
         void readCB( SocketConnection* pConnection, ssize_t nread );
         void parseQuery( SocketConnection *pConnection );
+        void parseResponse( SocketConnection *pConnection );
 };
 
 #endif

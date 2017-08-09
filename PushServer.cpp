@@ -39,22 +39,19 @@ int PushServer::_LoadConf()
 
 int PushServer::getConnectionConf( SocketConnection *pConnection )
 {
-    std::string strAppName = (*( pConnection->reqData ))["app_name"].GetString();
-    std::string strPushType = (*( pConnection->reqData ))["push_type"].GetString();
-
-    confIterator it = mapConf.find( strAppName );
+    confIterator it = mapConf.find( pConnection->strAppName );
     if( it == mapConf.end() )
     {
         LOG(WARNING) << "app conf not found";
         return 1;
     }
 
-    if( ! mapConf[ strAppName ]->isSet( strPushType ) )
+    if( ! mapConf[ pConnection->strAppName ]->isSet( pConnection->strPushType ) )
     {
         LOG(WARNING) << "push type not found";
         return 1;
     }
-    pConnection->conf = mapConf[ strAppName ];
+    pConnection->conf = mapConf[ pConnection->strAppName ];
     return 0;
 }
 
@@ -74,7 +71,7 @@ static size_t curlWriteCB( void *ptr, size_t size, size_t nmemb, void *data )
     }
 
     SocketConnection * pConnection = (SocketConnection *)data;
-    while( int(pConnection->upstreamBuf->intLen+realsize) > pConnection->upstreamBuf->intSize ) {
+    while( int(pConnection->upstreamBuf->intLen+realsize) >= pConnection->upstreamBuf->intSize ) {
         pConnection->upstreamBuf->enlarge();
     }
     memcpy( pConnection->upstreamBuf->data + pConnection->upstreamBuf->intLen, ptr, realsize );
@@ -84,7 +81,7 @@ static size_t curlWriteCB( void *ptr, size_t size, size_t nmemb, void *data )
 
 int PushServer::getConnectionHandle( SocketConnection *pConnection )
 {
-    YAML::Node conf = pConnection->conf->config[ (*( pConnection->reqData ))["push_type"].GetString() ];
+    YAML::Node conf = pConnection->conf->config[ pConnection->strPushType ];
 
     pConnection->upstreamHandle = curl_easy_init();
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
@@ -96,29 +93,25 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_TIMEOUT, 5);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYHOST, 0L);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_VERBOSE, 1L);
-    /*curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGFUNCTION, my_trace);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGDATA, &debug_data);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_NOPROGRESS, 0L);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_TIME, 3L);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_LIMIT, 10L);*/
+    /*curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_VERBOSE, 1L);
+      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGFUNCTION, my_trace);
+      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGDATA, &debug_data);
+      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_NOPROGRESS, 0L);
+      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_TIME, 3L);
+      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_LIMIT, 10L);*/
+
+    struct curl_slist *curlHeader = NULL;
+    std::string authHeader = "Authorization: key=";
+    authHeader += conf["key"].as<std::string>();
+    curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
+    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     return 0;
-}
-
-void writeCallback( uv_write_t *req, int status ) {
-    SocketConnection* pConnection = (SocketConnection *)(req->data);
-
-    if( status < 0 ) {
-        LOG(WARNING) << "write fail, error:" << uv_strerror( status );
-        delete pConnection;
-    } else {
-        uv_timer_stop( pConnection->clientTimer );
-    }
 }
 
 void PushServer::parseQuery( SocketConnection *pConnection )
 {
-    LOG(INFO) << "recv query";
+    LOG(INFO) << "recv query: " << pConnection->inBuf->data;
+
     pConnection->reqData->Parse( (const char*)(pConnection->inBuf->data) );
     if( ! pConnection->reqData->IsObject() )
     {
@@ -126,6 +119,7 @@ void PushServer::parseQuery( SocketConnection *pConnection )
         delete pConnection;
         return;
     }
+
     if( ! pConnection->reqData->HasMember("app_name") || ! (*(pConnection->reqData))["app_name"].IsString() ||
             ! pConnection->reqData->HasMember("push_type") || ! (*(pConnection->reqData))["push_type"].IsString() )
     {
@@ -133,20 +127,30 @@ void PushServer::parseQuery( SocketConnection *pConnection )
         delete pConnection;
         return;
     }
+    pConnection->strAppName = (*(pConnection->reqData))["app_name"].GetString();
+    pConnection->strPushType = (*(pConnection->reqData))["push_type"].GetString();
+
     if( getConnectionConf( pConnection ) )
     {
-        LOG(WARNING) << "get app conf fail";
+        LOG(WARNING) << "get connection conf fail";
         delete pConnection;
         return;
     }
 
     if( getConnectionHandle( pConnection ) )
     {
-        LOG(WARNING) << "get handle fail";
+        LOG(WARNING) << "get connection handle fail";
         delete pConnection;
         return;
     }
-    curl_multi_add_handle( multi, pConnection->upstreamHandle );
+
+    if( curl_multi_add_handle( multi, pConnection->upstreamHandle ) != CURLM_OK )
+    {
+        LOG(WARNING) << "add connection handle fail";
+        curl_easy_cleanup( pConnection->upstreamHandle );
+        delete pConnection;
+        return;
+    }
 }
 
 void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
@@ -155,6 +159,7 @@ void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
 
     if( pConnection->inBuf->data[pConnection->inBuf->intLen-1] == '\0' )
     {
+        uv_read_stop( (uv_stream_t*)(pConnection->clientWatcher) );
         uv_timer_stop( pConnection->clientTimer );
         parseQuery( pConnection );
     }
@@ -176,6 +181,41 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
     }
 }
 
+void writeCallback( uv_write_t *req, int status ) {
+    SocketConnection* pConnection = (SocketConnection *)(req->data);
+
+    if( status < 0 ) {
+        LOG(WARNING) << "write fail, error:" << uv_strerror( status );
+        delete pConnection;
+    } else {
+        uv_timer_stop( pConnection->clientTimer );
+    }
+}
+
+void PushServer::parseResponse( SocketConnection *pConnection )
+{
+    pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
+    pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
+    if( ! pConnection->resData->IsObject() )
+    {
+        LOG(WARNING) << "response data is not json";
+        delete pConnection;
+        return;
+    }
+
+    if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" )
+    {
+        LOG(WARNING) << "response result fail: " << (*(pConnection->resData))["info"].GetString();
+        delete pConnection;
+        return;
+    }
+
+    //pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->upstreamBuf->data), pConnection->upstreamBuf->intLen );
+    pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length() );
+    uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
+    uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
+}
+
 static void checkMultiInfo()
 {
     CURLMsg *msg;
@@ -189,9 +229,8 @@ static void checkMultiInfo()
             curl_easy_getinfo( easy, CURLINFO_PRIVATE, &pConnection );
 
             if( msg->data.result == 0 ) {
-                pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->upstreamBuf->data), pConnection->upstreamBuf->intLen );
-                uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
-                uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
+                PushServer* pPushServer = PushServer::getInstance();
+                pPushServer->parseResponse( pConnection );
             } else {
                 delete pConnection;
             }
@@ -278,6 +317,8 @@ void PushServer::acceptCB()
         pConnection->status = csAccepted;
         uv_read_start( (uv_stream_t*)(pConnection->clientWatcher), uvAllocBuffer, readCallBack );
         uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->readTimeout, 0 );
+    } else {
+        delete pConnection;
     }
 }
 
