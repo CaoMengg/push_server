@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export LD_LIBRARY_PATH=/usr/local/lib/:/usr/lib/:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/usr/local/lib/:/usr/lib/:lib/nghttp2/lib:$LD_LIBRARY_PATH
 
 cd ..
 ./bin/push_server

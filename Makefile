@@ -1,6 +1,6 @@
 OBJS = util/GLog.o util/YamlConf.o util/SocketBuffer.o util/SocketConnection.o PushServer.o
 CFLAGS = -W -Wall -Wunused-value -std=c++11 -g -rdynamic
-DEPENDS = lib/glog/libglog.a lib/libuv/libuv.a lib/yaml/libyaml-cpp.a lib/curl/lib/libcurl.a -lssl -lcrypto -lz -lpthread
+DEPENDS = lib/glog/libglog.a lib/libuv/libuv.a lib/yaml/libyaml-cpp.a -Llib/openssl/lib -Llib/nghttp2/lib lib/curl/lib/libcurl.a -lnghttp2 -lssl -lcrypto -lz -lpthread
 INCLUDE = -I. -Iutil/ -Ilib/ -Ilib/libuv/include -Ilib/curl/include -Ilib/json/include
 
 bin/push_server: main.cpp main.h $(OBJS)
@@ -32,7 +32,8 @@ clean:
 start:
 	-$(MAKE) --no-print-directory stop
 	-$(MAKE) --no-print-directory
-	./bin/supervise.push_server run/ &
+	cd run && bash run
+#./bin/supervise.push_server run/ &
 
 stop:
 	-killall supervise.push_server 2>/dev/null
