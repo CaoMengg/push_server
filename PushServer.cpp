@@ -84,21 +84,39 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
     YAML::Node conf = pConnection->conf->config[ pConnection->strPushType ];
 
     pConnection->upstreamHandle = curl_easy_init();
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POST, 1L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*( pConnection->reqData ))["payload"].GetString());
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_WRITEFUNCTION, curlWriteCB);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_WRITEDATA, pConnection);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_PRIVATE, pConnection);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_TIMEOUT, 5);
+    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_TIMEOUT_MS, conf["timeout"].as<long>());
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYHOST, 0L);
-    /*curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_VERBOSE, 1L);
-      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGFUNCTION, my_trace);
-      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGDATA, &debug_data);
-      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_NOPROGRESS, 0L);
-      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_TIME, 3L);
-      curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_LIMIT, 10L);*/
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_VERBOSE, 1L);
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGFUNCTION, my_trace);
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGDATA, &debug_data);
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_NOPROGRESS, 0L);
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_TIME, 3L);
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_LOW_SPEED_LIMIT, 10L);
+
+    if( pConnection->strPushType == "apns" )
+    {
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+    } else if( pConnection->strPushType == "apns" ) {
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+    } else {
+        LOG(WARNING) << "unsurpported push type";
+        return 1;
+    }
+
+    //curl_easy_setopt(c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
+    //curl_easy_setopt(c, CURLOPT_SSLCERTTYPE, "PEM");  
+    //curl_easy_setopt(c, CURLOPT_SSLCERT, "apns_cert.pem");  
+    //curl_easy_setopt(c, CURLOPT_SSLCERTPASSWD, "123456");  
+    //curl_easy_setopt(c, CURLOPT_SSLKEYTYPE, "PEM");
+    //curl_easy_setopt(c, CURLOPT_SSLKEY, "apns_key.pem");  
+    //curl_easy_setopt(c, CURLOPT_SSLKEYPASSWD, "123456");  
 
     struct curl_slist *curlHeader = NULL;
     std::string authHeader = "Authorization: key=";
@@ -338,14 +356,6 @@ void PushServer::start()
     if( intRet != 0 )
     {
         LOG(WARNING) << "load conf fail";
-        return;
-    }
-
-    CURLcode res;
-    res = curl_global_init( CURL_GLOBAL_ALL );
-    if( res != CURLE_OK )
-    {
-        LOG(WARNING) << "curl_global_init fail";
         return;
     }
 

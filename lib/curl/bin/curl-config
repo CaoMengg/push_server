@@ -83,7 +83,7 @@ while test $# -gt 0; do
         ;;
 
     --feature|--features)
-        for feature in SSL IPv6 UnixSockets libz NTLM NTLM_WB TLS-SRP HTTP2 HTTPS-proxy ""; do
+        for feature in SSL IPv6 UnixSockets libz AsynchDNS NTLM NTLM_WB TLS-SRP HTTP2 HTTPS-proxy ""; do
             test -n "$feature" && echo "$feature"
         done
         ;;
@@ -148,7 +148,7 @@ while test $# -gt 0; do
            CURLLIBDIR=""
         fi
         if test "Xno" = "Xyes"; then
-          echo ${CURLLIBDIR}-lcurl -lnghttp2 -lssl -lcrypto -lssl -lcrypto -lz
+          echo ${CURLLIBDIR}-lcurl -lcares -lnghttp2 -lssl -lcrypto -lssl -lcrypto -lz
         else
           echo ${CURLLIBDIR}-lcurl
         fi
@@ -156,7 +156,7 @@ while test $# -gt 0; do
 
     --static-libs)
         if test "Xyes" != "Xno" ; then
-          echo ${exec_prefix}/lib/libcurl.a -L/home/ubuntu/openssl/lib -L/home/ubuntu/nghttp/lib -lnghttp2 -lssl -lcrypto -lssl -lcrypto -lz
+          echo ${exec_prefix}/lib/libcurl.a -L/home/ubuntu/openssl/lib -L/home/ubuntu/nghttp/lib -L/home/ubuntu/c-ares/lib -lcares -lnghttp2 -lssl -lcrypto -lssl -lcrypto -lz
         else
           echo "curl was built with static libraries disabled" >&2
           exit 1
@@ -164,7 +164,7 @@ while test $# -gt 0; do
         ;;
 
     --configure)
-        echo " '--with-nghttp2=/home/ubuntu/nghttp' '--with-ssl=/home/ubuntu/openssl' '--prefix=/home/ubuntu/curl'"
+        echo " '--prefix=/home/ubuntu/curl' '--with-ssl=/home/ubuntu/openssl' '--with-nghttp2=/home/ubuntu/nghttp' '--enable-ares=/home/ubuntu/c-ares'"
         ;;
 
     *)

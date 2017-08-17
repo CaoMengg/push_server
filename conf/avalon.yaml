@@ -1,3 +1,11 @@
 xiaomi:
     api: "https://api.xmpush.xiaomi.com/v2/message/regid"
     key: "4QOxU+ZwGIVe2EA64GQjEg=="
+    timeout: 2000
+apns:
+    api: "https://api.push.apple.com:443/3/device/"
+    topic: "cn.myhug.avalon"
+    cert_file: "data/avalon/apns_cert.pem"
+    key_file: "data/avalon/apns_key.pem"
+    cert_password: "123456"
+    timeout: 5000
