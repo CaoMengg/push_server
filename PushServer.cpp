@@ -102,27 +102,33 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
 
     if( pConnection->strPushType == "apns" )
     {
+        std::string apiUrl = conf["api"].as<std::string>() + (*( pConnection->reqData ))["token"].GetString();
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, apiUrl.c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLCERTTYPE, "PEM");
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLCERT, conf["cert_file"].as<std::string>().c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLCERTPASSWD, conf["cert_password"].as<std::string>().c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLKEYTYPE, "PEM");
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLKEY, conf["key_file"].as<std::string>().c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLKEYPASSWD, conf["cert_password"].as<std::string>().c_str());
+
+        struct curl_slist *curlHeader = NULL;
+        std::string topicHeader = "apns-topic: ";
+        topicHeader += conf["topic"].as<std::string>();
+        curlHeader = curl_slist_append( curlHeader, topicHeader.c_str() );
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+    } else if( pConnection->strPushType == "xiaomi" ) {
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
-    } else if( pConnection->strPushType == "apns" ) {
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+
+        struct curl_slist *curlHeader = NULL;
+        std::string authHeader = "Authorization: key=";
+        authHeader += conf["key"].as<std::string>();
+        curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     } else {
         LOG(WARNING) << "unsurpported push type";
         return 1;
     }
-
-    //curl_easy_setopt(c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
-    //curl_easy_setopt(c, CURLOPT_SSLCERTTYPE, "PEM");  
-    //curl_easy_setopt(c, CURLOPT_SSLCERT, "apns_cert.pem");  
-    //curl_easy_setopt(c, CURLOPT_SSLCERTPASSWD, "123456");  
-    //curl_easy_setopt(c, CURLOPT_SSLKEYTYPE, "PEM");
-    //curl_easy_setopt(c, CURLOPT_SSLKEY, "apns_key.pem");  
-    //curl_easy_setopt(c, CURLOPT_SSLKEYPASSWD, "123456");  
-
-    struct curl_slist *curlHeader = NULL;
-    std::string authHeader = "Authorization: key=";
-    authHeader += conf["key"].as<std::string>();
-    curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     return 0;
 }
 
@@ -213,19 +219,32 @@ void writeCallback( uv_write_t *req, int status ) {
 void PushServer::parseResponse( SocketConnection *pConnection )
 {
     pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
-    pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
-    if( ! pConnection->resData->IsObject() )
-    {
-        LOG(WARNING) << "response data is not json";
-        delete pConnection;
-        return;
-    }
 
-    if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" )
+    if( pConnection->strPushType == "apns" )
     {
-        LOG(WARNING) << "response result fail: " << (*(pConnection->resData))["info"].GetString();
-        delete pConnection;
-        return;
+        long httpStatus = 0;
+        curl_easy_getinfo(pConnection->upstreamHandle, CURLINFO_RESPONSE_CODE, &httpStatus);
+        if( httpStatus != 200 )
+        {
+            LOG(WARNING) << "apns return fail: " << pConnection->upstreamBuf->data;
+            delete pConnection;
+            return;
+        }
+    } else if( pConnection->strPushType == "xiaomi" ) {
+        pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
+        if( ! pConnection->resData->IsObject() )
+        {
+            LOG(WARNING) << "xiaomi result is not json";
+            delete pConnection;
+            return;
+        }
+
+        if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" )
+        {
+            LOG(WARNING) << "xiaomi return fail: " << (*(pConnection->resData))["info"].GetString();
+            delete pConnection;
+            return;
+        }
     }
 
     //pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->upstreamBuf->data), pConnection->upstreamBuf->intLen );

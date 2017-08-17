@@ -15,8 +15,16 @@ $connection = socket_connect($socket, '127.0.0.1', '9090');
 $arrData = array(
     'app_name' => 'avalon',
     'push_type' => 'xiaomi',
-    'payload' => 'notify_id=6792&registration_id=L2nsKCk7b8qP3nvyiB8YijmuJ0%2F%2FtQ+oBPFKrKX83Es%3D&time_to_live=604800000&title=%E6%B6%88%E6%81%AF%E6%8F%90%E9%86%92&description=def%E5%8F%91%E6%9D%A5%E6%B6%88%E6%81%AF&notify_type=7&extra.notify_foreground=0&pass_through=0&payload=%7B%22pushId%22%3A%22PROC_START_TIME_MS%22%2C%22type%22%3A%22msg%22%2C%22body%22%3A%22abc%5Cu53d1%5Cu6765%5Cu6d88%5Cu606f%22%2C%22badge%22%3A1%2C%22settings%22%3A0%2C%22interact%22%3A%22%22%2C%22remind%22%3A1%2C%22from%22%3A1%2C%22app_name%22%3A%22app_avalon%22%7D&restricted_package_name=cn.myhug.avalon',
+    'payload' => 'notify_id=6792&registration_id=L2nsKCk7b8qP3nvyiB8YijmuJ0%2F%2FtQ+oBPFKrKX83Es%3D&time_to_live=604800000&title=%E6%B6%88%E6%81%AF%E6%8F%90%E9%86%92&description=push_server%E5%8F%91%E6%9D%A5%E6%B6%88%E6%81%AF&notify_type=7&extra.notify_foreground=0&pass_through=0&payload=%7B%22pushId%22%3A%22PROC_START_TIME_MS%22%2C%22type%22%3A%22msg%22%2C%22body%22%3A%22abc%5Cu53d1%5Cu6765%5Cu6d88%5Cu606f%22%2C%22badge%22%3A1%2C%22settings%22%3A0%2C%22interact%22%3A%22%22%2C%22remind%22%3A1%2C%22from%22%3A1%2C%22app_name%22%3A%22app_avalon%22%7D&restricted_package_name=cn.myhug.avalon',
 );
+
+// avalon apns
+/*$arrData = array(
+    'app_name' => 'avalon',
+    'push_type' => 'apns',
+    'token' => 'febbb4a2f85ff01923cef5bf3ba2fa9f52ce5183b2479e6027d618f313453407',
+    'payload' => '{"aps":{"alert":{"body":"push_server\u53d1\u6765\u6d88\u606f","launch-image":"icon_120"},"sound":"default","badge":1},"avalon":{"app_name":"app_avalon","type":"msg"}}',
+);*/
 
 $strMsg = json_encode($arrData);
 $strMsg .= "\0";
