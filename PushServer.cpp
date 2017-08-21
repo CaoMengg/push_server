@@ -93,6 +93,7 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_TIMEOUT_MS, conf["timeout"].as<long>());
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYHOST, 0L);
+    //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_PIPEWAIT, 1L);
     //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_VERBOSE, 1L);
     //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGFUNCTION, my_trace);
     //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGDATA, &debug_data);
@@ -112,17 +113,20 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLKEY, conf["key_file"].as<std::string>().c_str());
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLKEYPASSWD, conf["cert_password"].as<std::string>().c_str());
 
-        struct curl_slist *curlHeader = NULL;
         std::string topicHeader = "apns-topic: ";
         topicHeader += conf["topic"].as<std::string>();
+
+        struct curl_slist *curlHeader = NULL;
         curlHeader = curl_slist_append( curlHeader, topicHeader.c_str() );
+        curlHeader = curl_slist_append( curlHeader, "apns-priority: 10" );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     } else if( pConnection->strPushType == "xiaomi" ) {
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
 
-        struct curl_slist *curlHeader = NULL;
         std::string authHeader = "Authorization: key=";
         authHeader += conf["key"].as<std::string>();
+
+        struct curl_slist *curlHeader = NULL;
         curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     } else {
@@ -383,6 +387,8 @@ void PushServer::start()
         LOG(WARNING) << "curl_multi_init fail";
         return;
     }
+    // pipelining & multiplexing, re-use connection
+    curl_multi_setopt(multi, CURLMOPT_PIPELINING, CURLPIPE_HTTP1 | CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, curlTimerCallback);
     curl_multi_setopt(multi, CURLMOPT_TIMERDATA, NULL);
     curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, curlSocketCallback);
@@ -404,7 +410,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.0.1, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_global_cleanup();

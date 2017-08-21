@@ -11,6 +11,7 @@ int main()
         LOG(WARNING) << "curl_global_init fail";
         return 1;
     }
+    LOG(INFO) << "curl_global_init succ, version: " << curl_version();
 
     PushServer::getInstance()->start();
     return 0;
