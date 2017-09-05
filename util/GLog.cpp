@@ -1,5 +1,11 @@
 #include "GLog.h"
 
+void FailureHandle( const char* data, int size )
+{
+    std::string str = std::string( data, size );
+    LOG(ERROR) << str;
+}
+
 void initGLog( const char *logName )
 {
     google::InitGoogleLogging( logName );
@@ -17,5 +23,9 @@ void initGLog( const char *logName )
     warningLogName += ".log.wf.";
     google::SetLogDestination( google::INFO, infoLogName.c_str() );
     google::SetLogDestination( google::WARNING, warningLogName.c_str() );
-    //google::SetLogDestination( google::ERROR, warningLogName.c_str() );
+    google::SetLogDestination( google::ERROR, warningLogName.c_str() );
+
+    // 捕获并记录core dump
+    google::InstallFailureSignalHandler();
+    google::InstallFailureWriter( &FailureHandle );
 }

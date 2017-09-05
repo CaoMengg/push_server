@@ -1,3 +1,18 @@
 xiaomi:
     api: "https://api.xmpush.xiaomi.com/v2/message/regid"
     key: "V6QijF3nfgqQWU6BB++JZA=="
+    timeout: 2000
+apns:
+    api: "https://api.push.apple.com:443/3/device/"
+    topic: "cn.myhug.avalon"
+    cert_file: "data/avalon/apns_cert.pem"
+    key_file: "data/avalon/apns_key.pem"
+    cert_password: "123456"
+    timeout: 5000
+getui:
+    api: "http://sdk.open.api.igexin.com/apiex.htm"
+    app_id: "l4kLa5FumT8SGjsERSPhc1"
+    app_secret: "4bgOKgJ29g8cghhM5qAUK"
+    app_key: "5yleRscqsd5gXowkOOxYjA"
+    master_secret: "UhxsePTxnT7vESiVHv3C6"
+    timeout: 2000

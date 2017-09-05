@@ -26,7 +26,18 @@ enum enumConnectionStatus
 class SocketConnection
 {
     public:
-        SocketConnection( uv_loop_t *loop ) {
+        void logNotice()
+        {
+            LOG(INFO) << "NOTICE: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc;
+        }
+
+        void logWarning( std::string strInfo )
+        {
+            LOG(INFO) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
+        }
+
+        SocketConnection( uv_loop_t *loop )
+        {
             pLoop = loop;
             inBuf = new SocketBuffer( 4096 );
             upstreamBuf = new SocketBuffer( 4096 );
@@ -47,7 +58,10 @@ class SocketConnection
             reqData = new rapidjson::Document();
             resData = new rapidjson::Document();
         }
-        ~SocketConnection() {
+
+        ~SocketConnection()
+        {
+            logNotice();
             delete inBuf;
             delete upstreamBuf;
 
@@ -85,9 +99,10 @@ class SocketConnection
 
         rapidjson::Document *reqData = NULL;
         rapidjson::Document *resData = NULL;
-        std::string strAppName;
-        std::string strPushType;
+        std::string strAppName = "";
+        std::string strPushType = "";
         std::string strReqSucc = "{\"errno\":0}";
+        bool isSucc = false;
         YamlConf *conf = NULL;
 
         long readTimeout = 100;

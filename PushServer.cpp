@@ -17,13 +17,13 @@ int PushServer::_LoadConf()
     intListenPort = mainConf->getInt( "listen" );
     if( intListenPort <= 0 )
     {
-        LOG(WARNING) << "listen port invalid";
+        LOG(ERROR) << "load conf fail, listen port invalid";
         return 1;
     }
 
     if( ! mainConf->isSet( "apps" ) )
     {
-        LOG(WARNING) << "apps not found";
+        LOG(ERROR) << "load conf fail, apps not found";
         return 1;
     }
     YamlConf *appConf = NULL;
@@ -32,6 +32,7 @@ int PushServer::_LoadConf()
         std::string confFile = "conf/" + it->second.as<std::string>();
         appConf = new YamlConf( confFile );
         mapConf[ it->first.as<std::string>() ] = appConf;
+        DLOG(INFO) << "load app conf:" << confFile;
     }
 
     return 0;
@@ -42,13 +43,15 @@ int PushServer::getConnectionConf( SocketConnection *pConnection )
     confIterator it = mapConf.find( pConnection->strAppName );
     if( it == mapConf.end() )
     {
-        LOG(WARNING) << "app conf not found";
+        std::string strInfo( "app conf not found" );
+        pConnection->logWarning( strInfo );
         return 1;
     }
 
     if( ! mapConf[ pConnection->strAppName ]->isSet( pConnection->strPushType ) )
     {
-        LOG(WARNING) << "push type not found";
+        std::string strInfo( "push type not found" );
+        pConnection->logWarning( strInfo );
         return 1;
     }
     pConnection->conf = mapConf[ pConnection->strAppName ];
@@ -58,8 +61,9 @@ int PushServer::getConnectionConf( SocketConnection *pConnection )
 void clientTimeoutCB( uv_timer_t *timer )
 {
     SocketConnection* pConnection = (SocketConnection *)(timer->data);
+    std::string strInfo( "client timeout" );
+    pConnection->logWarning( strInfo );
     delete pConnection;
-    LOG(WARNING) << "client timeout";
 }
 
 static size_t curlWriteCB( void *ptr, size_t size, size_t nmemb, void *data )
@@ -129,21 +133,33 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         struct curl_slist *curlHeader = NULL;
         curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+    } else if( pConnection->strPushType == "getui" ) {
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+
+        std::string authHeader = "Authorization: key=";
+        authHeader += conf["app_key"].as<std::string>();
+
+        struct curl_slist *curlHeader = NULL;
+        curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     } else {
-        LOG(WARNING) << "unsurpported push type";
+        std::string strInfo( "unsurpported push type" );
+        pConnection->logWarning( strInfo );
         return 1;
     }
+    DLOG(INFO) << "getConnectionHandle app_name:" << pConnection->strAppName << " push_type:" << pConnection->strPushType;
     return 0;
 }
 
 void PushServer::parseQuery( SocketConnection *pConnection )
 {
-    LOG(INFO) << "recv query: " << pConnection->inBuf->data;
+    DLOG(INFO) << "recv query from client: " << pConnection->inBuf->data;
 
     pConnection->reqData->Parse( (const char*)(pConnection->inBuf->data) );
     if( ! pConnection->reqData->IsObject() )
     {
-        LOG(WARNING) << "request data is not json";
+        std::string strInfo( "request data is not json" );
+        pConnection->logWarning( strInfo );
         delete pConnection;
         return;
     }
@@ -151,7 +167,8 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     if( ! pConnection->reqData->HasMember("app_name") || ! (*(pConnection->reqData))["app_name"].IsString() ||
             ! pConnection->reqData->HasMember("push_type") || ! (*(pConnection->reqData))["push_type"].IsString() )
     {
-        LOG(WARNING) << "request data is invalid";
+        std::string strInfo( "request data is invalid" );
+        pConnection->logWarning( strInfo );
         delete pConnection;
         return;
     }
@@ -160,21 +177,24 @@ void PushServer::parseQuery( SocketConnection *pConnection )
 
     if( getConnectionConf( pConnection ) )
     {
-        LOG(WARNING) << "get connection conf fail";
+        std::string strInfo( "get connection conf fail" );
+        pConnection->logWarning( strInfo );
         delete pConnection;
         return;
     }
 
     if( getConnectionHandle( pConnection ) )
     {
-        LOG(WARNING) << "get connection handle fail";
+        std::string strInfo( "get connection handle fail" );
+        pConnection->logWarning( strInfo );
         delete pConnection;
         return;
     }
 
     if( curl_multi_add_handle( multi, pConnection->upstreamHandle ) != CURLM_OK )
     {
-        LOG(WARNING) << "add connection handle fail";
+        std::string strInfo( "add connection handle fail" );
+        pConnection->logWarning( strInfo );
         curl_easy_cleanup( pConnection->upstreamHandle );
         delete pConnection;
         return;
@@ -201,7 +221,7 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
 
     if( nread < 0 ) {
         if( nread == UV_EOF ) {
-            // client close normally
+            // client close
             delete pConnection;
         }
     } else if ( nread > 0 ) {
@@ -213,16 +233,17 @@ void writeCallback( uv_write_t *req, int status ) {
     SocketConnection* pConnection = (SocketConnection *)(req->data);
 
     if( status < 0 ) {
-        LOG(WARNING) << "write fail, error:" << uv_strerror( status );
-        delete pConnection;
-    } else {
-        uv_timer_stop( pConnection->clientTimer );
+        std::string strInfo( "write fail, error:" );
+        strInfo += uv_strerror( status );
+        pConnection->logWarning( strInfo );
     }
+    delete pConnection;
 }
 
 void PushServer::parseResponse( SocketConnection *pConnection )
 {
     pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
+    DLOG(INFO) << "recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
 
     if( pConnection->strPushType == "apns" )
     {
@@ -230,7 +251,9 @@ void PushServer::parseResponse( SocketConnection *pConnection )
         curl_easy_getinfo(pConnection->upstreamHandle, CURLINFO_RESPONSE_CODE, &httpStatus);
         if( httpStatus != 200 )
         {
-            LOG(WARNING) << "apns return fail: " << pConnection->upstreamBuf->data;
+            std::string strInfo( "apns return fail" );
+            strInfo += (char*)(pConnection->upstreamBuf->data);
+            pConnection->logWarning( strInfo );
             delete pConnection;
             return;
         }
@@ -238,20 +261,24 @@ void PushServer::parseResponse( SocketConnection *pConnection )
         pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
         if( ! pConnection->resData->IsObject() )
         {
-            LOG(WARNING) << "xiaomi result is not json";
+            std::string strInfo( "xiaomi result is not json" );
+            pConnection->logWarning( strInfo );
             delete pConnection;
             return;
         }
 
         if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" )
         {
-            LOG(WARNING) << "xiaomi return fail: " << (*(pConnection->resData))["info"].GetString();
+            std::string strInfo( "xiaomi return fail: " );
+            strInfo += (*(pConnection->resData))["info"].GetString();
+            pConnection->logWarning( strInfo );
             delete pConnection;
             return;
         }
+    } else if( pConnection->strPushType == "getui" ) {
+        std::cout << pConnection->upstreamBuf->data << std::endl;
     }
 
-    //pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->upstreamBuf->data), pConnection->upstreamBuf->intLen );
     pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length() );
     uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
     uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
@@ -284,13 +311,15 @@ static void checkMultiInfo()
 
 void curlSocketCB( uv_poll_t *watcher, int status, int revents )
 {
+    SocketConnection *pConnection = (SocketConnection *)(watcher->data);
     if( status < 0 ) {
-        LOG(WARNING) << "curlSocketCB fail, error:" << uv_strerror( status );
+        std::string strInfo( "curlSocketCB fail, error:" );
+        strInfo += uv_strerror( status );
+        pConnection->logWarning( strInfo );
         return;
     }
 
     int action = (revents&UV_READABLE ? CURL_POLL_IN : 0) | (revents&UV_WRITABLE ? CURL_POLL_OUT : 0);
-    SocketConnection *pConnection = (SocketConnection *)(watcher->data);
     PushServer* pPushServer = PushServer::getInstance();
     curl_multi_socket_action( pPushServer->multi, pConnection->upstreamFd, action, &(pPushServer->intCurlRunning));
     checkMultiInfo();
@@ -378,13 +407,13 @@ void PushServer::start()
     intRet = _LoadConf();
     if( intRet != 0 )
     {
-        LOG(WARNING) << "load conf fail";
+        LOG(ERROR) << "load conf fail";
         return;
     }
 
     multi = curl_multi_init();
     if( multi == NULL ) {
-        LOG(WARNING) << "curl_multi_init fail";
+        LOG(ERROR) << "curl_multi_init fail";
         return;
     }
     // pipelining & multiplexing, re-use connection
@@ -400,17 +429,17 @@ void PushServer::start()
 
     intRet = uv_tcp_bind( uvServer, (const struct sockaddr*)&addr, 0 );
     if( intRet != 0 ) {
-        LOG(WARNING) << "bind fail";
+        LOG(ERROR) << "bind fail";
         return;
     }
 
     intRet = uv_listen( (uv_stream_t*)uvServer, 255, acceptCallback );
     if( intRet != 0 ) {
-        LOG(WARNING) << "listen fail";
+        LOG(ERROR) << "listen fail";
         return;
     }
 
-    LOG(INFO) << "server start, version=0.0.1, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.0.3, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_global_cleanup();
