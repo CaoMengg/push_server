@@ -33,7 +33,7 @@ class SocketConnection
 
         void logWarning( std::string strInfo )
         {
-            LOG(INFO) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
+            LOG(WARNING) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
         }
 
         SocketConnection( uv_loop_t *loop )
@@ -55,6 +55,9 @@ class SocketConnection
             writeReq = new uv_write_t();
             writeReq->data = this;
 
+            shutdownReq = new uv_shutdown_t();
+            shutdownReq->data = this;
+
             reqData = new rapidjson::Document();
             resData = new rapidjson::Document();
         }
@@ -65,18 +68,16 @@ class SocketConnection
             delete inBuf;
             delete upstreamBuf;
 
-            uv_close( (uv_handle_t *)clientWatcher, NULL );
-            delete clientWatcher;
             uv_timer_stop( clientTimer );
             delete clientTimer;
 
             if( upstreamFd > 0 )
             {
-                uv_close( (uv_handle_t *)upstreamWatcher, NULL );
-                delete upstreamWatcher;
+                //uv_close( (uv_handle_t *)upstreamWatcher, uvCloseCB );
             }
 
             delete writeReq;
+            delete shutdownReq;
             delete reqData;
             delete resData;
         }
@@ -96,6 +97,7 @@ class SocketConnection
 
         uv_write_t *writeReq = NULL;
         uv_buf_t uvOutBuf;
+        uv_shutdown_t *shutdownReq;
 
         rapidjson::Document *reqData = NULL;
         rapidjson::Document *resData = NULL;

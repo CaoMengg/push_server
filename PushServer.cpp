@@ -32,7 +32,7 @@ int PushServer::_LoadConf()
         std::string confFile = "conf/" + it->second.as<std::string>();
         appConf = new YamlConf( confFile );
         mapConf[ it->first.as<std::string>() ] = appConf;
-        DLOG(INFO) << "load app conf:" << confFile;
+        DLOG(INFO) << "DEBUG: load app conf:" << confFile;
     }
 
     return 0;
@@ -147,13 +147,13 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         pConnection->logWarning( strInfo );
         return 1;
     }
-    DLOG(INFO) << "getConnectionHandle app_name:" << pConnection->strAppName << " push_type:" << pConnection->strPushType;
+    DLOG(INFO) << "DEBUG: getConnectionHandle app_name:" << pConnection->strAppName << " push_type:" << pConnection->strPushType;
     return 0;
 }
 
 void PushServer::parseQuery( SocketConnection *pConnection )
 {
-    DLOG(INFO) << "recv query from client: " << pConnection->inBuf->data;
+    DLOG(INFO) << "DEBUG: recv query from client: " << pConnection->inBuf->data;
 
     pConnection->reqData->Parse( (const char*)(pConnection->inBuf->data) );
     if( ! pConnection->reqData->IsObject() )
@@ -230,20 +230,36 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
 }
 
 void writeCallback( uv_write_t *req, int status ) {
-    SocketConnection* pConnection = (SocketConnection *)(req->data);
-
+    DLOG(INFO) << "DEBUG: write to client status:" << status;
     if( status < 0 ) {
+        SocketConnection* pConnection = (SocketConnection *)(req->data);
         std::string strInfo( "write fail, error:" );
         strInfo += uv_strerror( status );
         pConnection->logWarning( strInfo );
     }
+}
+
+void closeCallBack( uv_handle_t* handle ) {
+    DLOG(INFO) << "DEBUG: close client connect";
+    SocketConnection* pConnection = (SocketConnection *)(handle->data);
     delete pConnection;
+}
+
+void shutdownCallback( uv_shutdown_t* req, int status ) {
+    DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
+    SocketConnection* pConnection = (SocketConnection *)(req->data);
+    if( status < 0 ) {
+        std::string strInfo( "shutdown fail, error:" );
+        strInfo += uv_strerror( status );
+        pConnection->logWarning( strInfo );
+    }
+    uv_close( (uv_handle_t *)pConnection->clientWatcher, closeCallBack );
 }
 
 void PushServer::parseResponse( SocketConnection *pConnection )
 {
     pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
-    DLOG(INFO) << "recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
+    DLOG(INFO) << "DEBUG: recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
 
     if( pConnection->strPushType == "apns" )
     {
@@ -279,9 +295,11 @@ void PushServer::parseResponse( SocketConnection *pConnection )
         std::cout << pConnection->upstreamBuf->data << std::endl;
     }
 
+    pConnection->isSucc = true;
     pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length() );
     uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
     uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
+    uv_shutdown( pConnection->shutdownReq, (uv_stream_t*)(pConnection->clientWatcher), shutdownCallback );
 }
 
 static void checkMultiInfo()
@@ -340,7 +358,9 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
 
     if( action == CURL_POLL_REMOVE )
     {
-        uv_poll_stop( pConnection->upstreamWatcher );
+        if( pConnection->upstreamFd>0 && uv_is_active( (const uv_handle_t*)(pConnection->upstreamWatcher) ) ) {
+            uv_poll_stop( pConnection->upstreamWatcher );
+        }
     }
     else
     {
@@ -439,7 +459,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.0.3, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.0.5, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_global_cleanup();

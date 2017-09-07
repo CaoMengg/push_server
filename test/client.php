@@ -2,7 +2,7 @@
 
 $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
 $connection = socket_connect($socket, '127.0.0.1', '9090');
-//$connection = socket_connect($socket, '10.1.4.119', '9090');
+//$connection = socket_connect($socket, '10.1.4.121', '9090');
 
 // baobao xiaomi
 /*$arrData = array(
