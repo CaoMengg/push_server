@@ -23,6 +23,8 @@ enum enumConnectionStatus
     csClosing,
 };
 
+void uvCloseCB( uv_handle_t* handle );
+
 class SocketConnection
 {
     public:
@@ -68,8 +70,8 @@ class SocketConnection
             delete inBuf;
             delete upstreamBuf;
 
-            uv_timer_stop( clientTimer );
-            delete clientTimer;
+            uv_close( (uv_handle_t *)clientWatcher, uvCloseCB );
+            uv_close( (uv_handle_t *)clientTimer, uvCloseCB );
 
             if( upstreamFd > 0 )
             {

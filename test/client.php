@@ -1,6 +1,8 @@
 <?php
 
 $socket = socket_create(AF_INET, SOCK_STREAM, SOL_TCP);
+socket_set_option( $socket, SOL_SOCKET, SO_SNDTIMEO, array('sec'=>0, 'usec'=>100000) );
+socket_set_option( $socket, SOL_SOCKET, SO_RCVTIMEO, array('sec'=>0, 'usec'=>100000) );
 $connection = socket_connect($socket, '127.0.0.1', '9090');
 //$connection = socket_connect($socket, '10.1.4.121', '9090');
 

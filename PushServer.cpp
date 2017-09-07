@@ -207,7 +207,7 @@ void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
 
     if( pConnection->inBuf->data[pConnection->inBuf->intLen-1] == '\0' )
     {
-        uv_read_stop( (uv_stream_t*)(pConnection->clientWatcher) );
+        //uv_read_stop( (uv_stream_t*)(pConnection->clientWatcher) );
         uv_timer_stop( pConnection->clientTimer );
         parseQuery( pConnection );
     }
@@ -221,7 +221,8 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
 
     if( nread < 0 ) {
         if( nread == UV_EOF ) {
-            // client close
+            std::string strInfo( "client close connection" );
+            pConnection->logWarning( strInfo );
             delete pConnection;
         }
     } else if ( nread > 0 ) {
@@ -239,12 +240,6 @@ void writeCallback( uv_write_t *req, int status ) {
     }
 }
 
-void closeCallBack( uv_handle_t* handle ) {
-    DLOG(INFO) << "DEBUG: close client connect";
-    SocketConnection* pConnection = (SocketConnection *)(handle->data);
-    delete pConnection;
-}
-
 void shutdownCallback( uv_shutdown_t* req, int status ) {
     DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
     SocketConnection* pConnection = (SocketConnection *)(req->data);
@@ -253,7 +248,7 @@ void shutdownCallback( uv_shutdown_t* req, int status ) {
         strInfo += uv_strerror( status );
         pConnection->logWarning( strInfo );
     }
-    uv_close( (uv_handle_t *)pConnection->clientWatcher, closeCallBack );
+    delete pConnection;
 }
 
 void PushServer::parseResponse( SocketConnection *pConnection )
