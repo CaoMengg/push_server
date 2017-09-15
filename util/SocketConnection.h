@@ -38,7 +38,7 @@ class SocketConnection
             LOG(WARNING) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
         }
 
-        SocketConnection( uv_loop_t *loop )
+        SocketConnection( uv_loop_t *loop, CURLM *multi )
         {
             pLoop = loop;
             inBuf = new SocketBuffer( 4096 );
@@ -51,6 +51,7 @@ class SocketConnection
             clientTimer->data = this;
             uv_timer_init( pLoop, clientTimer );
 
+            pMulti = multi;
             upstreamWatcher = new uv_poll_t();
             upstreamWatcher->data = this;
 
@@ -73,6 +74,12 @@ class SocketConnection
             uv_close( (uv_handle_t *)clientWatcher, uvCloseCB );
             uv_close( (uv_handle_t *)clientTimer, uvCloseCB );
 
+            if( upstreamHandle != NULL )
+            {
+                curl_multi_remove_handle( pMulti, upstreamHandle );
+                curl_easy_cleanup( upstreamHandle );
+            }
+
             if( upstreamFd > 0 )
             {
                 //uv_close( (uv_handle_t *)upstreamWatcher, uvCloseCB );
@@ -86,6 +93,7 @@ class SocketConnection
 
         enumConnectionStatus status = csInit;
         int upstreamFd = 0;
+        int refcount = 2;
 
         uv_loop_t *pLoop = NULL;
         SocketBuffer *inBuf = NULL;
@@ -94,6 +102,7 @@ class SocketConnection
         uv_tcp_t *clientWatcher = NULL;
         uv_timer_t *clientTimer = NULL;
 
+        CURLM *pMulti = NULL;
         CURL *upstreamHandle = NULL;
         uv_poll_t *upstreamWatcher = NULL;
 

@@ -151,6 +151,32 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
     return 0;
 }
 
+void writeCallback( uv_write_t *req, int status ) {
+    DLOG(INFO) << "DEBUG: write to client status:" << status;
+    if( status < 0 ) {
+        SocketConnection* pConnection = (SocketConnection *)(req->data);
+        std::string strInfo( "write fail, error:" );
+        strInfo += uv_strerror( status );
+        pConnection->logWarning( strInfo );
+    }
+}
+
+void shutdownCallback( uv_shutdown_t* req, int status ) {
+    DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
+    SocketConnection* pConnection = (SocketConnection *)(req->data);
+    uv_timer_stop( pConnection->clientTimer );
+
+    if( status < 0 ) {
+        std::string strInfo( "shutdown fail, error:" );
+        strInfo += uv_strerror( status );
+        pConnection->logWarning( strInfo );
+    }
+
+    if( --pConnection->refcount == 0 ) {
+        delete pConnection;
+    }
+}
+
 void PushServer::parseQuery( SocketConnection *pConnection )
 {
     DLOG(INFO) << "DEBUG: recv query from client: " << pConnection->inBuf->data;
@@ -195,10 +221,15 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     {
         std::string strInfo( "add connection handle fail" );
         pConnection->logWarning( strInfo );
-        curl_easy_cleanup( pConnection->upstreamHandle );
         delete pConnection;
         return;
     }
+
+    // return to client
+    pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length() );
+    uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
+    uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
+    uv_shutdown( pConnection->shutdownReq, (uv_stream_t*)(pConnection->clientWatcher), shutdownCallback );
 }
 
 void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
@@ -207,7 +238,7 @@ void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
 
     if( pConnection->inBuf->data[pConnection->inBuf->intLen-1] == '\0' )
     {
-        //uv_read_stop( (uv_stream_t*)(pConnection->clientWatcher) );
+        uv_read_stop( (uv_stream_t*)(pConnection->clientWatcher) );
         uv_timer_stop( pConnection->clientTimer );
         parseQuery( pConnection );
     }
@@ -230,27 +261,6 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
     }
 }
 
-void writeCallback( uv_write_t *req, int status ) {
-    DLOG(INFO) << "DEBUG: write to client status:" << status;
-    if( status < 0 ) {
-        SocketConnection* pConnection = (SocketConnection *)(req->data);
-        std::string strInfo( "write fail, error:" );
-        strInfo += uv_strerror( status );
-        pConnection->logWarning( strInfo );
-    }
-}
-
-void shutdownCallback( uv_shutdown_t* req, int status ) {
-    DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
-    SocketConnection* pConnection = (SocketConnection *)(req->data);
-    if( status < 0 ) {
-        std::string strInfo( "shutdown fail, error:" );
-        strInfo += uv_strerror( status );
-        pConnection->logWarning( strInfo );
-    }
-    delete pConnection;
-}
-
 void PushServer::parseResponse( SocketConnection *pConnection )
 {
     pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
@@ -260,13 +270,13 @@ void PushServer::parseResponse( SocketConnection *pConnection )
     {
         long httpStatus = 0;
         curl_easy_getinfo(pConnection->upstreamHandle, CURLINFO_RESPONSE_CODE, &httpStatus);
-        if( httpStatus != 200 )
+        if( httpStatus!=200 && httpStatus!=410 )
         {
-            std::string strInfo( "apns return fail" );
+            std::string strInfo( "apns return fail " );
             strInfo += (char*)(pConnection->upstreamBuf->data);
             pConnection->logWarning( strInfo );
-            delete pConnection;
-            return;
+        } else {
+            pConnection->isSucc = true;
         }
     } else if( pConnection->strPushType == "xiaomi" ) {
         pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
@@ -274,27 +284,21 @@ void PushServer::parseResponse( SocketConnection *pConnection )
         {
             std::string strInfo( "xiaomi result is not json" );
             pConnection->logWarning( strInfo );
-            delete pConnection;
-            return;
-        }
-
-        if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" )
-        {
+        } else if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" ) {
             std::string strInfo( "xiaomi return fail: " );
             strInfo += (*(pConnection->resData))["info"].GetString();
             pConnection->logWarning( strInfo );
-            delete pConnection;
-            return;
+        } else {
+            pConnection->isSucc = true;
         }
     } else if( pConnection->strPushType == "getui" ) {
         std::cout << pConnection->upstreamBuf->data << std::endl;
     }
 
-    pConnection->isSucc = true;
-    pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length() );
-    uv_write( pConnection->writeReq, (uv_stream_t*)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback );
-    uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0 );
-    uv_shutdown( pConnection->shutdownReq, (uv_stream_t*)(pConnection->clientWatcher), shutdownCallback );
+    if( --pConnection->refcount == 0 ) {
+        delete pConnection;
+    }
+    return;
 }
 
 static void checkMultiInfo()
@@ -315,9 +319,7 @@ static void checkMultiInfo()
             } else {
                 delete pConnection;
             }
-
-            curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
-            curl_easy_cleanup( easy );
+            //curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
         }
     }
 }
@@ -395,7 +397,7 @@ void uvAllocBuffer( uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf )
 
 void PushServer::acceptCB()
 {
-    SocketConnection* pConnection = new SocketConnection( uvLoop );
+    SocketConnection* pConnection = new SocketConnection( uvLoop, multi );
     uv_tcp_init( uvLoop, pConnection->clientWatcher );
 
     if( uv_accept( (uv_stream_t*)uvServer, (uv_stream_t*)(pConnection->clientWatcher) ) == 0 ) {
@@ -454,7 +456,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.0.5, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.0.6, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_global_cleanup();
