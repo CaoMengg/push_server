@@ -2,6 +2,8 @@
 
 PushServer* PushServer::pInstance = NULL;
 
+
+// 单例模式
 PushServer* PushServer::getInstance()
 {
     if( pInstance == NULL )
@@ -11,6 +13,8 @@ PushServer* PushServer::getInstance()
     return pInstance;
 }
 
+
+// 加载服务配置
 int PushServer::_LoadConf()
 {
     mainConf = new YamlConf( "conf/push_server.yaml" );
@@ -26,6 +30,7 @@ int PushServer::_LoadConf()
         LOG(ERROR) << "load conf fail, apps not found";
         return 1;
     }
+
     YamlConf *appConf = NULL;
     for( YAML::const_iterator it=mainConf->config["apps"].begin(); it!=mainConf->config["apps"].end(); ++it)
     {
@@ -38,6 +43,8 @@ int PushServer::_LoadConf()
     return 0;
 }
 
+
+// 获取链接配置
 int PushServer::getConnectionConf( SocketConnection *pConnection )
 {
     confIterator it = mapConf.find( pConnection->strAppName );
@@ -54,9 +61,11 @@ int PushServer::getConnectionConf( SocketConnection *pConnection )
         pConnection->logWarning( strInfo );
         return 1;
     }
+
     pConnection->conf = mapConf[ pConnection->strAppName ];
     return 0;
 }
+
 
 void clientTimeoutCB( uv_timer_t *timer )
 {
@@ -65,6 +74,7 @@ void clientTimeoutCB( uv_timer_t *timer )
     pConnection->logWarning( strInfo );
     delete pConnection;
 }
+
 
 static size_t curlWriteCB( void *ptr, size_t size, size_t nmemb, void *data )
 {
@@ -82,6 +92,7 @@ static size_t curlWriteCB( void *ptr, size_t size, size_t nmemb, void *data )
     pConnection->upstreamBuf->intLen += realsize;
     return realsize;
 }
+
 
 int PushServer::getConnectionHandle( SocketConnection *pConnection )
 {
@@ -151,6 +162,7 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
     return 0;
 }
 
+
 void writeCallback( uv_write_t *req, int status ) {
     DLOG(INFO) << "DEBUG: write to client status:" << status;
     if( status < 0 ) {
@@ -160,6 +172,7 @@ void writeCallback( uv_write_t *req, int status ) {
         pConnection->logWarning( strInfo );
     }
 }
+
 
 void shutdownCallback( uv_shutdown_t* req, int status ) {
     DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
@@ -177,6 +190,8 @@ void shutdownCallback( uv_shutdown_t* req, int status ) {
     }
 }
 
+
+// 解析客户端query
 void PushServer::parseQuery( SocketConnection *pConnection )
 {
     DLOG(INFO) << "DEBUG: recv query from client: " << pConnection->inBuf->data;
@@ -232,6 +247,7 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     uv_shutdown( pConnection->shutdownReq, (uv_stream_t*)(pConnection->clientWatcher), shutdownCallback );
 }
 
+
 void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
 {
     pConnection->inBuf->intLen += nread;
@@ -243,6 +259,7 @@ void PushServer::readCB( SocketConnection* pConnection, ssize_t nread )
         parseQuery( pConnection );
     }
 }
+
 
 void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
 {
@@ -261,6 +278,8 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
     }
 }
 
+
+// 解析上游response
 void PushServer::parseResponse( SocketConnection *pConnection )
 {
     pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
@@ -301,6 +320,8 @@ void PushServer::parseResponse( SocketConnection *pConnection )
     return;
 }
 
+
+// 处理libcurl msg
 static void checkMultiInfo()
 {
     CURLMsg *msg;
@@ -332,6 +353,7 @@ static void checkMultiInfo()
     }
 }
 
+
 void curlSocketCB( uv_poll_t *watcher, int status, int revents )
 {
     SocketConnection *pConnection = (SocketConnection *)(watcher->data);
@@ -347,6 +369,7 @@ void curlSocketCB( uv_poll_t *watcher, int status, int revents )
     curl_multi_socket_action( pPushServer->multi, pConnection->upstreamFd, action, &(pPushServer->intCurlRunning));
     checkMultiInfo();
 }
+
 
 static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, void *sockp )
 {
@@ -386,6 +409,7 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
     return 0;
 }
 
+
 void curlTimeoutCB( uv_timer_t *timer )
 {
     (void)timer;
@@ -393,6 +417,7 @@ void curlTimeoutCB( uv_timer_t *timer )
     curl_multi_socket_action( pPushServer->multi, CURL_SOCKET_TIMEOUT, 0, &(pPushServer->intCurlRunning) );
     checkMultiInfo();
 }
+
 
 static int curlTimerCallback( CURLM *multi, long timeout_ms, void *g )
 {
@@ -412,6 +437,7 @@ static int curlTimerCallback( CURLM *multi, long timeout_ms, void *g )
     return 0;
 }
 
+
 void uvAllocBuffer( uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf )
 {
     (void)suggested_size;
@@ -422,6 +448,7 @@ void uvAllocBuffer( uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf )
     }
     *buf = uv_buf_init( (char *)(pConnection->inBuf->data) + pConnection->inBuf->intLen, pConnection->inBuf->intSize - pConnection->inBuf->intLen );
 }
+
 
 void PushServer::acceptCB()
 {
@@ -437,6 +464,7 @@ void PushServer::acceptCB()
     }
 }
 
+
 void acceptCallback( uv_stream_t *server, int status ) {
     (void)server;
     if( status < 0 ) {
@@ -445,6 +473,7 @@ void acceptCallback( uv_stream_t *server, int status ) {
     }
     PushServer::getInstance()->acceptCB();
 }
+
 
 void PushServer::start()
 {
@@ -461,7 +490,7 @@ void PushServer::start()
         LOG(ERROR) << "curl_multi_init fail";
         return;
     }
-    // pipelining & multiplexing, re-use connection
+    // pipelining & multiplexing, re-use connection 打开后导致libuv core, bug?
     //curl_multi_setopt(multi, CURLMOPT_PIPELINING, CURLPIPE_HTTP1 | CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, curlTimerCallback);
     curl_multi_setopt(multi, CURLMOPT_TIMERDATA, NULL);
