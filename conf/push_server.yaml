@@ -2,4 +2,6 @@ listen: 9090
 
 apps:
     baobao: "baobao.yaml"
+    baobao_voip: "baobao_voip.yaml"
+    avalon_sandbox: "avalon_sandbox.yaml"
     avalon: "avalon.yaml"

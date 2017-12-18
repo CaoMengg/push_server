@@ -313,13 +313,21 @@ static void checkMultiInfo()
             SocketConnection *pConnection;
             curl_easy_getinfo( easy, CURLINFO_PRIVATE, &pConnection );
 
+            curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
+            curl_easy_cleanup( easy );
+            pConnection->upstreamHandle = NULL;
+            if( pConnection->upstreamFd > 0 ) {
+                DLOG(INFO) << "DEBUG: uv_poll_stop in checkMultiInfo fd=" << pConnection->upstreamFd;
+                uv_poll_stop( pConnection->upstreamWatcher );
+                pConnection->upstreamFd = 0;
+            }
+
             if( msg->data.result == 0 ) {
                 PushServer* pPushServer = PushServer::getInstance();
                 pPushServer->parseResponse( pConnection );
             } else {
                 delete pConnection;
             }
-            //curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
         }
     }
 }
@@ -347,20 +355,31 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
     SocketConnection *pConnection;
     curl_easy_getinfo( e, CURLINFO_PRIVATE, &pConnection );
 
-    if( pConnection->upstreamFd <= 0 )
-    {
-        pConnection->upstreamFd = s;
-        uv_poll_init_socket( pConnection->pLoop, pConnection->upstreamWatcher, s );
-    }
-
     if( action == CURL_POLL_REMOVE )
     {
-        if( pConnection->upstreamFd>0 && uv_is_active( (const uv_handle_t*)(pConnection->upstreamWatcher) ) ) {
+        //if( uv_is_active( (const uv_handle_t*)(pConnection->upstreamWatcher) ) ) {
+        if( pConnection->upstreamFd > 0 ) {
+            DLOG(INFO) << "DEBUG: uv_poll_stop in curlSocketCallback fd=" << s;
             uv_poll_stop( pConnection->upstreamWatcher );
+            pConnection->upstreamFd = 0;
         }
     }
     else
     {
+        if( pConnection->upstreamFd <= 0 )
+        {
+            int intRet = uv_poll_init_socket( pConnection->pLoop, pConnection->upstreamWatcher, s );
+            if( intRet < 0 )
+            {
+                std::string strInfo( "uv_poll_init_socket, error:" );
+                strInfo += uv_strerror( intRet );
+                pConnection->logWarning( strInfo );
+                return 0;
+            }
+            DLOG(INFO) << "DEBUG: uv_poll_init_socket fd=" << s;
+            pConnection->upstreamFd = s;
+        }
+
         int kind = (action&CURL_POLL_IN ? UV_READABLE : 0) | (action&CURL_POLL_OUT ? UV_WRITABLE : 0);
         uv_poll_start( pConnection->upstreamWatcher, kind, curlSocketCB );
     }
@@ -380,6 +399,15 @@ static int curlTimerCallback( CURLM *multi, long timeout_ms, void *g )
     (void)multi;
     (void)g;
     PushServer* pPushServer = PushServer::getInstance();
+
+    if( timeout_ms < 0 ) {
+        uv_timer_stop( pPushServer->curlMultiTimer );
+        return 0;
+    }
+
+    if( timeout_ms == 0 ) {
+        timeout_ms = 1;
+    }
     uv_timer_start( pPushServer->curlMultiTimer, curlTimeoutCB, timeout_ms, 0 );
     return 0;
 }
@@ -434,7 +462,7 @@ void PushServer::start()
         return;
     }
     // pipelining & multiplexing, re-use connection
-    curl_multi_setopt(multi, CURLMOPT_PIPELINING, CURLPIPE_HTTP1 | CURLPIPE_MULTIPLEX);
+    //curl_multi_setopt(multi, CURLMOPT_PIPELINING, CURLPIPE_HTTP1 | CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, curlTimerCallback);
     curl_multi_setopt(multi, CURLMOPT_TIMERDATA, NULL);
     curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, curlSocketCallback);
@@ -456,8 +484,9 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.0.6, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.1.3, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
+    curl_multi_cleanup( multi );
     curl_global_cleanup();
 }

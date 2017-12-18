@@ -1,0 +1,7 @@
+apns:
+    api: "https://api.push.apple.com:443/3/device/"
+    topic: "com.myhug.baobao.voip"
+    cert_file: "data/baobao_voip/apns_cert.pem"
+    key_file: "data/baobao_voip/apns_key.pem"
+    cert_password: "123456"
+    timeout: 5000
