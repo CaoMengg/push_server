@@ -67,6 +67,36 @@ int PushServer::getConnectionConf( SocketConnection *pConnection )
 }
 
 
+int PushServer::getUpstreamWatcher( SocketConnection *pConnection )
+{
+    if( pConnection->upstreamFd <= 0 ) {
+        return 1;
+    }
+
+    upstreamWatcherIterator it = mapUpstreamWatcher.find( pConnection->upstreamFd );
+    if( it == mapUpstreamWatcher.end() )
+    {
+        uv_poll_t *pUvPoll = new uv_poll_t();
+        mapUpstreamWatcher[ pConnection->upstreamFd ] = pUvPoll;
+        pConnection->upstreamWatcher = pUvPoll;
+    } else {
+        pConnection->upstreamWatcher = it->second;
+    }
+
+    int intRet = uv_poll_init( pConnection->pLoop, pConnection->upstreamWatcher, pConnection->upstreamFd );
+    if( intRet < 0 )
+    {
+        std::string strInfo( "uv_poll_init error:" );
+        strInfo += uv_strerror( intRet );
+        pConnection->logWarning( strInfo );
+        return 2;
+    }
+
+    pConnection->upstreamWatcher->data = pConnection;
+    return 0;
+}
+
+
 void clientTimeoutCB( uv_timer_t *timer )
 {
     SocketConnection* pConnection = (SocketConnection *)(timer->data);
@@ -287,11 +317,12 @@ void PushServer::parseResponse( SocketConnection *pConnection )
 
     if( pConnection->strPushType == "apns" )
     {
-        long httpStatus = 0;
-        curl_easy_getinfo(pConnection->upstreamHandle, CURLINFO_RESPONSE_CODE, &httpStatus);
-        if( httpStatus!=200 && httpStatus!=410 )
+        long httpCode = 0;
+        curl_easy_getinfo(pConnection->upstreamHandle, CURLINFO_RESPONSE_CODE, &httpCode);
+        if( httpCode!=200 && httpCode!=410 )
         {
-            std::string strInfo( "apns return fail " );
+            std::string strInfo( "apns return fail http_code:" );
+            strInfo += httpCode + " ";
             strInfo += (char*)(pConnection->upstreamBuf->data);
             pConnection->logWarning( strInfo );
         } else {
@@ -331,12 +362,13 @@ static void checkMultiInfo()
     while( (msg = curl_multi_info_read(PushServer::getInstance()->multi, &msgs_left)) ) {
         if( msg->msg == CURLMSG_DONE ) {
             easy = msg->easy_handle;
+
             SocketConnection *pConnection;
             curl_easy_getinfo( easy, CURLINFO_PRIVATE, &pConnection );
 
             curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
-            curl_easy_cleanup( easy );
-            pConnection->upstreamHandle = NULL;
+            //curl_easy_cleanup( easy );
+            //pConnection->upstreamHandle = NULL;
             if( pConnection->upstreamFd > 0 ) {
                 DLOG(INFO) << "DEBUG: uv_poll_stop in checkMultiInfo fd=" << pConnection->upstreamFd;
                 uv_poll_stop( pConnection->upstreamWatcher );
@@ -513,7 +545,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.1.3, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.1.6, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_multi_cleanup( multi );

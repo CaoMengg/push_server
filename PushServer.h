@@ -27,6 +27,9 @@
 typedef std::map<std::string, YamlConf*> confMap;
 typedef std::map<std::string, YamlConf*>::iterator confIterator;
 
+typedef std::map<int, uv_poll_t*> upstreamWatcherMap;
+typedef std::map<int, uv_poll_t*>::iterator upstreamWatcherIterator;
+
 class PushServer
 {
     private:
@@ -62,6 +65,7 @@ class PushServer
         static PushServer *pInstance;
         YamlConf *mainConf = NULL;
         confMap mapConf;
+        upstreamWatcherMap mapUpstreamWatcher;
         int intListenPort = 0;
 
     public:
@@ -78,6 +82,7 @@ class PushServer
         void readCB( SocketConnection* pConnection, ssize_t nread );
         void parseQuery( SocketConnection *pConnection );
         void parseResponse( SocketConnection *pConnection );
+        int getUpstreamWatcher( SocketConnection *pConnection );
 };
 
 #endif

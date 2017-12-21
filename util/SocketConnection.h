@@ -41,6 +41,7 @@ class SocketConnection
         SocketConnection( uv_loop_t *loop, CURLM *multi )
         {
             pLoop = loop;
+            pMulti = multi;
             inBuf = new SocketBuffer( 4096 );
             upstreamBuf = new SocketBuffer( 4096 );
 
@@ -51,7 +52,6 @@ class SocketConnection
             clientTimer->data = this;
             uv_timer_init( pLoop, clientTimer );
 
-            pMulti = multi;
             upstreamWatcher = new uv_poll_t();
             upstreamWatcher->data = this;
 
@@ -76,13 +76,8 @@ class SocketConnection
 
             if( upstreamHandle != NULL )
             {
-                curl_multi_remove_handle( pMulti, upstreamHandle );
+                //curl_multi_remove_handle( pMulti, upstreamHandle );
                 curl_easy_cleanup( upstreamHandle );
-            }
-
-            if( upstreamFd > 0 )
-            {
-                //uv_close( (uv_handle_t *)upstreamWatcher, uvCloseCB );
             }
 
             delete writeReq;
