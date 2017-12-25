@@ -423,7 +423,7 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
     {
         if( pConnection->upstreamFd <= 0 )
         {
-            int intRet = uv_poll_init_socket( pConnection->pLoop, pConnection->upstreamWatcher, s );
+            /*int intRet = uv_poll_init_socket( pConnection->pLoop, pConnection->upstreamWatcher, s );
             if( intRet < 0 )
             {
                 std::string strInfo( "uv_poll_init_socket, error:" );
@@ -432,7 +432,16 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
                 return 0;
             }
             DLOG(INFO) << "DEBUG: uv_poll_init_socket fd=" << s;
+            pConnection->upstreamFd = s;*/
+
+            PushServer* pPushServer = PushServer::getInstance();
             pConnection->upstreamFd = s;
+            int intRet = pPushServer->getUpstreamWatcher( pConnection );
+            if( intRet != 0 )
+            {
+                return 0;
+            }
+            DLOG(INFO) << "DEBUG: uv_poll_init_socket fd=" << s;
         }
 
         int kind = (action&CURL_POLL_IN ? UV_READABLE : 0) | (action&CURL_POLL_OUT ? UV_WRITABLE : 0);
@@ -522,8 +531,8 @@ void PushServer::start()
         LOG(ERROR) << "curl_multi_init fail";
         return;
     }
-    // pipelining & multiplexing, re-use connection 打开后导致libuv core, bug?
-    //curl_multi_setopt(multi, CURLMOPT_PIPELINING, CURLPIPE_HTTP1 | CURLPIPE_MULTIPLEX);
+    // pipelining & multiplexing, re-use connection
+    curl_multi_setopt(multi, CURLMOPT_PIPELINING, CURLPIPE_HTTP1 | CURLPIPE_MULTIPLEX);
     curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, curlTimerCallback);
     curl_multi_setopt(multi, CURLMOPT_TIMERDATA, NULL);
     curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, curlSocketCallback);

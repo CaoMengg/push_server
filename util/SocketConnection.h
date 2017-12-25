@@ -52,8 +52,8 @@ class SocketConnection
             clientTimer->data = this;
             uv_timer_init( pLoop, clientTimer );
 
-            upstreamWatcher = new uv_poll_t();
-            upstreamWatcher->data = this;
+            //upstreamWatcher = new uv_poll_t();
+            //upstreamWatcher->data = this;
 
             writeReq = new uv_write_t();
             writeReq->data = this;
