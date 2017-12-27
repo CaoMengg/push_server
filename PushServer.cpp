@@ -102,7 +102,19 @@ void clientTimeoutCB( uv_timer_t *timer )
     SocketConnection* pConnection = (SocketConnection *)(timer->data);
     std::string strInfo( "client timeout" );
     pConnection->logWarning( strInfo );
-    delete pConnection;
+
+    if( pConnection->clientWatcher != NULL )
+    {
+        uv_close( (uv_handle_t *)(pConnection->clientWatcher), uvCloseCB );
+        pConnection->clientWatcher = NULL;
+    }
+    if( pConnection->clientTimer != NULL )
+    {
+        uv_close( (uv_handle_t *)(pConnection->clientTimer), uvCloseCB );
+        pConnection->clientTimer = NULL;
+    }
+
+    pConnection->tryDestroy();
 }
 
 
@@ -207,17 +219,25 @@ void writeCallback( uv_write_t *req, int status ) {
 void shutdownCallback( uv_shutdown_t* req, int status ) {
     DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
     SocketConnection* pConnection = (SocketConnection *)(req->data);
-    uv_timer_stop( pConnection->clientTimer );
+
+    if( pConnection->clientWatcher != NULL )
+    {
+        uv_close( (uv_handle_t *)(pConnection->clientWatcher), uvCloseCB );
+        pConnection->clientWatcher = NULL;
+    }
+    if( pConnection->clientTimer != NULL )
+    {
+        uv_timer_stop( pConnection->clientTimer );
+        uv_close( (uv_handle_t *)(pConnection->clientTimer), uvCloseCB );
+        pConnection->clientTimer = NULL;
+    }
 
     if( status < 0 ) {
         std::string strInfo( "shutdown fail, error:" );
         strInfo += uv_strerror( status );
         pConnection->logWarning( strInfo );
     }
-
-    if( --pConnection->refcount == 0 ) {
-        delete pConnection;
-    }
+    pConnection->tryDestroy();
 }
 
 
@@ -231,7 +251,7 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     {
         std::string strInfo( "request data is not json" );
         pConnection->logWarning( strInfo );
-        delete pConnection;
+        pConnection->tryDestroy();
         return;
     }
 
@@ -240,7 +260,7 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     {
         std::string strInfo( "request data is invalid" );
         pConnection->logWarning( strInfo );
-        delete pConnection;
+        pConnection->tryDestroy();
         return;
     }
     pConnection->strAppName = (*(pConnection->reqData))["app_name"].GetString();
@@ -250,7 +270,7 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     {
         std::string strInfo( "get connection conf fail" );
         pConnection->logWarning( strInfo );
-        delete pConnection;
+        pConnection->tryDestroy();
         return;
     }
 
@@ -258,7 +278,7 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     {
         std::string strInfo( "get connection handle fail" );
         pConnection->logWarning( strInfo );
-        delete pConnection;
+        pConnection->tryDestroy();
         return;
     }
 
@@ -266,9 +286,10 @@ void PushServer::parseQuery( SocketConnection *pConnection )
     {
         std::string strInfo( "add connection handle fail" );
         pConnection->logWarning( strInfo );
-        delete pConnection;
+        pConnection->tryDestroy();
         return;
     }
+    ++pConnection->refcount;
 
     // return to client
     pConnection->uvOutBuf = uv_buf_init( (char*)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length() );
@@ -301,8 +322,8 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
         if( nread == UV_EOF ) {
             std::string strInfo( "client close connection" );
             pConnection->logWarning( strInfo );
-            delete pConnection;
         }
+        pConnection->tryDestroy();
     } else if ( nread > 0 ) {
         PushServer::getInstance()->readCB( pConnection, nread );
     }
@@ -345,9 +366,7 @@ void PushServer::parseResponse( SocketConnection *pConnection )
         std::cout << pConnection->upstreamBuf->data << std::endl;
     }
 
-    if( --pConnection->refcount == 0 ) {
-        delete pConnection;
-    }
+    pConnection->tryDestroy();
     return;
 }
 
@@ -379,7 +398,7 @@ static void checkMultiInfo()
                 PushServer* pPushServer = PushServer::getInstance();
                 pPushServer->parseResponse( pConnection );
             } else {
-                delete pConnection;
+                pConnection->tryDestroy();
             }
         }
     }
@@ -418,35 +437,34 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
             uv_poll_stop( pConnection->upstreamWatcher );
             pConnection->upstreamFd = 0;
         }
+        return 0;
     }
-    else
+
+    if( pConnection->upstreamFd <= 0 )
     {
-        if( pConnection->upstreamFd <= 0 )
+        /*int intRet = uv_poll_init( pConnection->pLoop, pConnection->upstreamWatcher, s );
+          if( intRet < 0 )
+          {
+          std::string strInfo( "uv_poll_init, error:" );
+          strInfo += uv_strerror( intRet );
+          pConnection->logWarning( strInfo );
+          return 0;
+          }
+          DLOG(INFO) << "DEBUG: uv_poll_init fd=" << s;
+          pConnection->upstreamFd = s;*/
+
+        PushServer* pPushServer = PushServer::getInstance();
+        pConnection->upstreamFd = s;
+        int intRet = pPushServer->getUpstreamWatcher( pConnection );
+        if( intRet != 0 )
         {
-            /*int intRet = uv_poll_init_socket( pConnection->pLoop, pConnection->upstreamWatcher, s );
-            if( intRet < 0 )
-            {
-                std::string strInfo( "uv_poll_init_socket, error:" );
-                strInfo += uv_strerror( intRet );
-                pConnection->logWarning( strInfo );
-                return 0;
-            }
-            DLOG(INFO) << "DEBUG: uv_poll_init_socket fd=" << s;
-            pConnection->upstreamFd = s;*/
-
-            PushServer* pPushServer = PushServer::getInstance();
-            pConnection->upstreamFd = s;
-            int intRet = pPushServer->getUpstreamWatcher( pConnection );
-            if( intRet != 0 )
-            {
-                return 0;
-            }
-            DLOG(INFO) << "DEBUG: uv_poll_init_socket fd=" << s;
+            return 0;
         }
-
-        int kind = (action&CURL_POLL_IN ? UV_READABLE : 0) | (action&CURL_POLL_OUT ? UV_WRITABLE : 0);
-        uv_poll_start( pConnection->upstreamWatcher, kind, curlSocketCB );
+        DLOG(INFO) << "DEBUG: uv_poll_init fd=" << s;
     }
+
+    int kind = (action&CURL_POLL_IN ? UV_READABLE : 0) | (action&CURL_POLL_OUT ? UV_WRITABLE : 0);
+    uv_poll_start( pConnection->upstreamWatcher, kind, curlSocketCB );
     return 0;
 }
 
@@ -494,14 +512,13 @@ void uvAllocBuffer( uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf )
 void PushServer::acceptCB()
 {
     SocketConnection* pConnection = new SocketConnection( uvLoop, multi );
-    uv_tcp_init( uvLoop, pConnection->clientWatcher );
 
     if( uv_accept( (uv_stream_t*)uvServer, (uv_stream_t*)(pConnection->clientWatcher) ) == 0 ) {
         pConnection->status = csAccepted;
         uv_read_start( (uv_stream_t*)(pConnection->clientWatcher), uvAllocBuffer, readCallBack );
         uv_timer_start( pConnection->clientTimer, clientTimeoutCB, pConnection->readTimeout, 0 );
     } else {
-        delete pConnection;
+        pConnection->tryDestroy();
     }
 }
 
@@ -554,7 +571,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.1.6, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.1.8, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_multi_cleanup( multi );

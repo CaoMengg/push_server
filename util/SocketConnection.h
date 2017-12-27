@@ -28,16 +28,6 @@ void uvCloseCB( uv_handle_t* handle );
 class SocketConnection
 {
     public:
-        void logNotice()
-        {
-            LOG(INFO) << "NOTICE: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc;
-        }
-
-        void logWarning( std::string strInfo )
-        {
-            LOG(WARNING) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
-        }
-
         SocketConnection( uv_loop_t *loop, CURLM *multi )
         {
             pLoop = loop;
@@ -47,6 +37,7 @@ class SocketConnection
 
             clientWatcher = new uv_tcp_t();
             clientWatcher->data = this;
+            uv_tcp_init( pLoop, clientWatcher );
 
             clientTimer = new uv_timer_t();
             clientTimer->data = this;
@@ -71,9 +62,13 @@ class SocketConnection
             delete inBuf;
             delete upstreamBuf;
 
-            uv_close( (uv_handle_t *)clientWatcher, uvCloseCB );
-            uv_close( (uv_handle_t *)clientTimer, uvCloseCB );
-
+            if( clientWatcher != NULL )
+            {
+                uv_close( (uv_handle_t *)clientWatcher, uvCloseCB );
+            }
+            if( clientTimer != NULL ) {
+                uv_close( (uv_handle_t *)clientTimer, uvCloseCB );
+            }
             if( upstreamHandle != NULL )
             {
                 //curl_multi_remove_handle( pMulti, upstreamHandle );
@@ -86,9 +81,27 @@ class SocketConnection
             delete resData;
         }
 
+        void tryDestroy()
+        {
+            if( --refcount == 0 ) {
+                delete this;
+            }
+        }
+
+        void logNotice()
+        {
+            LOG(INFO) << "NOTICE: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc;
+        }
+
+        void logWarning( std::string strInfo )
+        {
+            LOG(WARNING) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
+        }
+
+
         enumConnectionStatus status = csInit;
         int upstreamFd = 0;
-        int refcount = 2;
+        int refcount = 1;
 
         uv_loop_t *pLoop = NULL;
         SocketBuffer *inBuf = NULL;
