@@ -77,19 +77,19 @@ int PushServer::getUpstreamWatcher( SocketConnection *pConnection )
     if( it == mapUpstreamWatcher.end() )
     {
         uv_poll_t *pUvPoll = new uv_poll_t();
+        int intRet = uv_poll_init( pConnection->pLoop, pUvPoll, pConnection->upstreamFd );
+        if( intRet < 0 )
+        {
+            std::string strInfo( "uv_poll_init error:" );
+            strInfo += uv_strerror( intRet );
+            pConnection->logWarning( strInfo );
+            return 2;
+        }
+
         mapUpstreamWatcher[ pConnection->upstreamFd ] = pUvPoll;
         pConnection->upstreamWatcher = pUvPoll;
     } else {
         pConnection->upstreamWatcher = it->second;
-    }
-
-    int intRet = uv_poll_init( pConnection->pLoop, pConnection->upstreamWatcher, pConnection->upstreamFd );
-    if( intRet < 0 )
-    {
-        std::string strInfo( "uv_poll_init error:" );
-        strInfo += uv_strerror( intRet );
-        pConnection->logWarning( strInfo );
-        return 2;
     }
 
     pConnection->upstreamWatcher->data = pConnection;
@@ -357,7 +357,7 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             pConnection->logWarning( strInfo );
         } else if( ! pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" ) {
             std::string strInfo( "xiaomi return fail: " );
-            strInfo += (*(pConnection->resData))["info"].GetString();
+            strInfo += (char*)(pConnection->upstreamBuf->data);
             pConnection->logWarning( strInfo );
         } else {
             pConnection->isSucc = true;
@@ -460,7 +460,7 @@ static int curlSocketCallback( CURL *e, curl_socket_t s, int action, void *cbp, 
         {
             return 0;
         }
-        DLOG(INFO) << "DEBUG: uv_poll_init fd=" << s;
+        DLOG(INFO) << "DEBUG: getUpstreamWatcher fd=" << s;
     }
 
     int kind = (action&CURL_POLL_IN ? UV_READABLE : 0) | (action&CURL_POLL_OUT ? UV_WRITABLE : 0);
@@ -571,7 +571,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.1.8, listen port=" << intListenPort;
+    LOG(INFO) << "server start, version=0.2.0, listen port=" << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_multi_cleanup( multi );
