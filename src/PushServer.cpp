@@ -571,7 +571,7 @@ void PushServer::start()
         return;
     }
 
-    LOG(INFO) << "server start, version=0.2.0, listen port=" << intListenPort;
+    LOG(INFO) << "server start, listen port " << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );
 
     curl_multi_cleanup( multi );

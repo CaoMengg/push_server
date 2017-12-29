@@ -11,7 +11,9 @@ int main()
         LOG(ERROR) << "curl_global_init fail";
         return 1;
     }
-    LOG(INFO) << "curl_global_init succ, version: " << curl_version();
+    LOG(INFO) << "libcurl version " << curl_version();
+    LOG(INFO) << "libuv version " << uv_version_string();
+    LOG(INFO) << "server version 0.2.0";
 
     PushServer::getInstance()->start();
     return 0;

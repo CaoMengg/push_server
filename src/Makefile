@@ -1,9 +1,9 @@
 OBJS = util/GLog.o util/YamlConf.o util/SocketBuffer.o util/SocketConnection.o PushServer.o
 CFLAGS = -W -Wall -Wunused-value -std=c++11 -g -rdynamic
-DEPENDS = lib/glog/libglog.a lib/libuv/libuv.a lib/yaml/libyaml-cpp.a -Llib/openssl/lib -Llib/nghttp2/lib -Llib/c-ares/lib lib/curl/lib/libcurl.a -lssl -lnghttp2 -lcares -lcrypto -lz -lpthread
-INCLUDE = -I. -Iutil/ -Ilib/ -Ilib/libuv/include -Ilib/curl/include -Ilib/json/include
+DEPENDS = ../lib/glog/libglog.a ../lib/libuv/libuv.a ../lib/yaml/libyaml-cpp.a -L../lib/openssl/lib -L../lib/nghttp2/lib -L../lib/c-ares/lib ../lib/curl/lib/libcurl.a -lssl -lnghttp2 -lcares -lcrypto -lz -lpthread
+INCLUDE = -I. -Iutil/ -I../lib/ -I../lib/libuv/include -I../lib/curl/include -I../lib/json/include
 
-bin/push_server: main.cpp main.h $(OBJS)
+../bin/push_server: main.cpp main.h $(OBJS)
 	$(CXX) $(CFLAGS) -o $@ $^ $(INCLUDE) $(DEPENDS)
 
 util/GLog.o: util/GLog.cpp util/GLog.h
@@ -25,15 +25,14 @@ PushServer.o: PushServer.cpp PushServer.h
 clean:
 	-$(MAKE) --no-print-directory stop
 	-$(RM) util/*.o util/*.gch
-	-$(RM) bin/push_server *.o *.gch
-	-$(RM) -rf run/supervise
-	-$(RM) log/*
+	-$(RM) ../bin/push_server *.o *.gch
+	-$(RM) -rf ../run/supervise
+	-$(RM) ../log/*
 
 start:
 	-$(MAKE) --no-print-directory stop
 	-$(MAKE) --no-print-directory
-	cd run && bash run
-#./bin/supervise.push_server run/ &
+	cd ../run && bash run
 
 stop:
 	-killall supervise.push_server 2>/dev/null
