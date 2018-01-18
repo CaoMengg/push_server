@@ -38,6 +38,10 @@ class PushServer
             uvLoop = uv_default_loop();
             uvServer = new uv_tcp_t();
 
+            maintainTimer = new uv_timer_t();
+            maintainTimer->data = this;
+            uv_timer_init( uvLoop, maintainTimer );
+
             curlMultiTimer = new uv_timer_t();
             curlMultiTimer->data = this;
             uv_timer_init( uvLoop, curlMultiTimer );
@@ -51,6 +55,8 @@ class PushServer
 
             uv_close( (uv_handle_t *)uvServer, NULL );
             delete uvServer;
+            uv_timer_stop( maintainTimer );
+            delete maintainTimer;
             uv_timer_stop( curlMultiTimer );
             delete curlMultiTimer;
 
@@ -73,11 +79,14 @@ class PushServer
         uv_loop_t *uvLoop = NULL;
         uv_tcp_t *uvServer = NULL;
 
+        uv_timer_t *maintainTimer = NULL;
+
         CURLM *multi = NULL;
         uv_timer_t *curlMultiTimer = NULL;
         int intCurlRunning = 1;
 
         void start();
+        void maintainCB();
         void acceptCB();
         void readCB( SocketConnection* pConnection, ssize_t nread );
         void parseQuery( SocketConnection *pConnection );

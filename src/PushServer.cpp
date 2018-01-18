@@ -523,13 +523,34 @@ void PushServer::acceptCB()
 }
 
 
-void acceptCallback( uv_stream_t *server, int status ) {
+void acceptCallback( uv_stream_t *server, int status )
+{
     (void)server;
     if( status < 0 ) {
         LOG(WARNING) << "accept fail, error:" << uv_strerror( status );
         return;
     }
     PushServer::getInstance()->acceptCB();
+}
+
+
+void PushServer::maintainCB()
+{
+    LOG(INFO) << "maintain in progress";
+
+    YamlConf *appConf = NULL;
+    for( confIterator it=mapConf.begin(); it!=mapConf.end(); ++it )
+    {
+        appConf = it->second;
+        DLOG(INFO) << it->first;
+    }
+}
+
+
+void maintainCallback( uv_timer_t *timer )
+{
+    (void)timer;
+    PushServer::getInstance()->maintainCB();
 }
 
 
@@ -570,6 +591,8 @@ void PushServer::start()
         LOG(ERROR) << "listen fail";
         return;
     }
+
+    uv_timer_start( maintainTimer, maintainCallback, 0, 10000 );
 
     LOG(INFO) << "server start, listen port " << intListenPort;
     uv_run( uvLoop, UV_RUN_DEFAULT );

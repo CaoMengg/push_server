@@ -10,6 +10,7 @@
 
 #include "uv.h"
 #include "curl/curl.h"
+#include "http_parser.h"
 #include "GLog.h"
 #include "YamlConf.h"
 #include "SocketBuffer.h"
@@ -43,8 +44,9 @@ class SocketConnection
             clientTimer->data = this;
             uv_timer_init( pLoop, clientTimer );
 
-            //upstreamWatcher = new uv_poll_t();
-            //upstreamWatcher->data = this;
+            httpParser = new http_parser;
+            http_parser_init( httpParser, HTTP_REQUEST );
+            httpParser->data = this;
 
             writeReq = new uv_write_t();
             writeReq->data = this;
@@ -75,6 +77,7 @@ class SocketConnection
                 curl_easy_cleanup( upstreamHandle );
             }
 
+            delete httpParser;
             delete writeReq;
             delete shutdownReq;
             delete reqData;
@@ -109,6 +112,9 @@ class SocketConnection
 
         uv_tcp_t *clientWatcher = NULL;
         uv_timer_t *clientTimer = NULL;
+
+        http_parser_settings httpParserSettings;
+        http_parser *httpParser = NULL;
 
         CURLM *pMulti = NULL;
         CURL *upstreamHandle = NULL;

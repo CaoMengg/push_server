@@ -1,7 +1,7 @@
 OBJS = util/GLog.o util/YamlConf.o util/SocketBuffer.o util/SocketConnection.o PushServer.o
 CFLAGS = -W -Wall -Wunused-value -std=c++11 -g -rdynamic
-DEPENDS = ../lib/glog/libglog.a ../lib/libuv/libuv.a ../lib/yaml/libyaml-cpp.a -L../lib/openssl/lib -L../lib/nghttp2/lib -L../lib/c-ares/lib ../lib/curl/lib/libcurl.a -lssl -lnghttp2 -lcares -lcrypto -lz -lpthread
-INCLUDE = -I. -Iutil/ -I../lib/ -I../lib/libuv/include -I../lib/curl/include -I../lib/json/include
+DEPENDS = ../lib/http-parser/http_parser.o ../lib/glog/libglog.a ../lib/libuv/libuv.a ../lib/yaml/libyaml-cpp.a -L../lib/openssl/lib -L../lib/nghttp2/lib -L../lib/c-ares/lib ../lib/curl/lib/libcurl.a -lssl -lnghttp2 -lcares -lcrypto -lz -lpthread
+INCLUDE = -I. -Iutil/ -I../lib/ -I../lib/libuv/include -I../lib/curl/include -I../lib/json/include -I../lib/http-parser/include
 
 ../bin/push_server: main.cpp main.h $(OBJS)
 	$(CXX) $(CFLAGS) -o $@ $^ $(INCLUDE) $(DEPENDS)
