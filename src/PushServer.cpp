@@ -138,11 +138,18 @@ static size_t curlWriteCB( void *ptr, size_t size, size_t nmemb, void *data )
 
 int PushServer::getConnectionHandle( SocketConnection *pConnection )
 {
-    YAML::Node conf = pConnection->conf->config[ pConnection->strPushType ];
+    YAML::Node conf;
+    if( pConnection->strPushType == "getui_auth" )
+    {
+        conf = pConnection->conf->config[ "getui" ];
+    }
+    else
+    {
+        conf = pConnection->conf->config[ pConnection->strPushType ];
+    }
 
     pConnection->upstreamHandle = curl_easy_init();
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POST, 1L);
-    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*( pConnection->reqData ))["payload"].GetString());
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_WRITEFUNCTION, curlWriteCB);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_WRITEDATA, pConnection);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_PRIVATE, pConnection);
@@ -162,6 +169,7 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
     {
         std::string apiUrl = conf["api"].as<std::string>() + (*( pConnection->reqData ))["token"].GetString();
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, apiUrl.c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*( pConnection->reqData ))["payload"].GetString());
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2);
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLCERTTYPE, "PEM");
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSLCERT, conf["cert_file"].as<std::string>().c_str());
@@ -179,6 +187,7 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     } else if( pConnection->strPushType == "xiaomi" ) {
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*( pConnection->reqData ))["payload"].GetString());
 
         std::string authHeader = "Authorization: key=";
         authHeader += conf["key"].as<std::string>();
@@ -186,8 +195,57 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         struct curl_slist *curlHeader = NULL;
         curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+    } else if( pConnection->strPushType == "getui_auth" ) {
+        rapidjson::Document jsonDom;
+        jsonDom.SetObject();
+
+        std::string strAppKey = conf["app_key"].as<std::string>();
+        rapidjson::Value appkey;
+        appkey = rapidjson::StringRef( strAppKey.c_str() );
+        jsonDom.AddMember( "appkey", appkey, jsonDom.GetAllocator() );
+
+        std::string strTimestamp;
+        struct timeval tv;
+        gettimeofday( &tv, NULL );
+        strTimestamp = std::to_string( tv.tv_sec * 1000 );
+        rapidjson::Value timestamp;
+        timestamp = rapidjson::StringRef( strTimestamp.c_str() );
+        jsonDom.AddMember( "timestamp", timestamp, jsonDom.GetAllocator() );
+
+        std::string strSignStr = strAppKey + strTimestamp + conf["master_secret"].as<std::string>();
+        char buf[2];
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256_CTX sha256;
+        SHA256_Init( &sha256 );
+        SHA256_Update( &sha256, strSignStr.c_str(), strSignStr.size() );
+        SHA256_Final( hash, &sha256 );
+        std::string strSign;
+        for( int i=0; i<SHA256_DIGEST_LENGTH; i++)
+        {
+            sprintf( buf, "%02x", hash[i] );
+            strSign += buf;
+        }
+        rapidjson::Value sign;
+        sign = rapidjson::StringRef( strSign.c_str() );
+        jsonDom.AddMember( "sign", sign, jsonDom.GetAllocator() );
+
+        rapidjson::StringBuffer buffer;
+        rapidjson::Writer<rapidjson::StringBuffer> writer( buffer );
+        jsonDom.Accept( writer );
+
+        char strTokenApi[100];
+        sprintf( strTokenApi, conf["api_token"].as<std::string>().c_str(), conf["app_id"].as<std::string>().c_str() );
+
+        std::string authHeader = "Content-Type: application/json";
+        struct curl_slist *curlHeader = NULL;
+        curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
+
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, strTokenApi);
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_COPYPOSTFIELDS, buffer.GetString());
     } else if( pConnection->strPushType == "getui" ) {
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*( pConnection->reqData ))["payload"].GetString());
 
         std::string authHeader = "Authorization: key=";
         authHeader += conf["app_key"].as<std::string>();
@@ -364,6 +422,21 @@ void PushServer::parseResponse( SocketConnection *pConnection )
         }
     } else if( pConnection->strPushType == "getui" ) {
         std::cout << pConnection->upstreamBuf->data << std::endl;
+    } else if( pConnection->strPushType == "getui_auth" ) {
+        pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
+        if( ! pConnection->resData->IsObject() )
+        {
+            std::string strInfo( "getui auth result is not json" );
+            pConnection->logWarning( strInfo );
+        } else if( !pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" || !pConnection->resData->HasMember("auth_token") ) {
+            std::string strInfo( "getui auth return fail: " );
+            strInfo += (char*)(pConnection->upstreamBuf->data);
+            pConnection->logWarning( strInfo );
+        } else {
+            std::string *token = new std::string( (*(pConnection->resData))["auth_token"].GetString() );
+            pConnection->conf->config["getui"]["auth_token"] = *token;
+            pConnection->isSucc = true;
+        }
     }
 
     pConnection->tryDestroy();
@@ -386,8 +459,6 @@ static void checkMultiInfo()
             curl_easy_getinfo( easy, CURLINFO_PRIVATE, &pConnection );
 
             curl_multi_remove_handle( PushServer::getInstance()->multi, easy );
-            //curl_easy_cleanup( easy );
-            //pConnection->upstreamHandle = NULL;
             if( pConnection->upstreamFd > 0 ) {
                 DLOG(INFO) << "DEBUG: uv_poll_stop in checkMultiInfo fd=" << pConnection->upstreamFd;
                 uv_poll_stop( pConnection->upstreamWatcher );
@@ -534,6 +605,31 @@ void acceptCallback( uv_stream_t *server, int status )
 }
 
 
+void PushServer::refreshGetuiToken( std::string appName, YamlConf* appConf )
+{
+    SocketConnection* pConnection = new SocketConnection( uvLoop, multi );
+    pConnection->strAppName = appName;
+    pConnection->strPushType = "getui_auth";
+    pConnection->conf = appConf;
+
+    if( getConnectionHandle( pConnection ) )
+    {
+        std::string strInfo( "get connection handle fail" );
+        pConnection->logWarning( strInfo );
+        pConnection->tryDestroy();
+        return;
+    }
+
+    if( curl_multi_add_handle( multi, pConnection->upstreamHandle ) != CURLM_OK )
+    {
+        std::string strInfo( "add connection handle fail" );
+        pConnection->logWarning( strInfo );
+        pConnection->tryDestroy();
+    }
+    return;
+}
+
+
 void PushServer::maintainCB()
 {
     LOG(INFO) << "maintain in progress";
@@ -542,7 +638,10 @@ void PushServer::maintainCB()
     for( confIterator it=mapConf.begin(); it!=mapConf.end(); ++it )
     {
         appConf = it->second;
-        DLOG(INFO) << it->first;
+        if( appConf->isSet( "getui" ) )
+        {
+            refreshGetuiToken( it->first, appConf );
+        }
     }
 }
 

@@ -11,13 +11,15 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <iostream>
 #include <map>
 
 #include "rapidjson/document.h"
-//#include "rapidjson/writer.h"
-//#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
+#include "rapidjson/stringbuffer.h"
 
+#include "openssl/sha.h"
 #include "uv.h"
 #include "curl/curl.h"
 #include "GLog.h"
@@ -86,7 +88,10 @@ class PushServer
         int intCurlRunning = 1;
 
         void start();
+
+        void refreshGetuiToken( std::string appName, YamlConf* appConf );
         void maintainCB();
+
         void acceptCB();
         void readCB( SocketConnection* pConnection, ssize_t nread );
         void parseQuery( SocketConnection *pConnection );

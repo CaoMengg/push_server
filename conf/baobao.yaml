@@ -11,6 +11,7 @@ apns:
     timeout: 5000
 getui:
     api: "http://sdk.open.api.igexin.com/apiex.htm"
+    api_token: "https://restapi.getui.com/v1/%s/auth_sign"
     app_id: "l4kLa5FumT8SGjsERSPhc1"
     app_secret: "4bgOKgJ29g8cghhM5qAUK"
     app_key: "5yleRscqsd5gXowkOOxYjA"
