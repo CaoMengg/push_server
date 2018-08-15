@@ -10,10 +10,10 @@ apns:
     cert_password: "123456"
     timeout: 5000
 getui:
-    api: "http://sdk.open.api.igexin.com/apiex.htm"
-    api_token: "https://restapi.getui.com/v1/%s/auth_sign"
-    app_id: "l4kLa5FumT8SGjsERSPhc1"
-    app_secret: "4bgOKgJ29g8cghhM5qAUK"
-    app_key: "5yleRscqsd5gXowkOOxYjA"
-    master_secret: "UhxsePTxnT7vESiVHv3C6"
+    api: "https://restapi.getui.com/v1/ri5LaPLbxp8BKAMmB7uab7/push_single"
+    api_auth: "https://restapi.getui.com/v1/ri5LaPLbxp8BKAMmB7uab7/auth_sign"
+    app_id: "ri5LaPLbxp8BKAMmB7uab7"
+    app_secret: "thDEr69GZh9zjuL72smkL2"
+    app_key: "7rVNopw0N374UJAueXEfW1"
+    master_secret: "IFsiCafsoR7Ln6vBbwS9d9"
     timeout: 2000

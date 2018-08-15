@@ -233,24 +233,29 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         rapidjson::Writer<rapidjson::StringBuffer> writer( buffer );
         jsonDom.Accept( writer );
 
-        char strTokenApi[100];
-        sprintf( strTokenApi, conf["api_token"].as<std::string>().c_str(), conf["app_id"].as<std::string>().c_str() );
-
-        std::string authHeader = "Content-Type: application/json";
+        std::string typeHeader = "Content-Type: application/json";
         struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
+        curlHeader = curl_slist_append( curlHeader, typeHeader.c_str() );
 
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, strTokenApi);
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api_auth"].as<std::string>().c_str());
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_COPYPOSTFIELDS, buffer.GetString());
     } else if( pConnection->strPushType == "getui" ) {
+        if( ! conf["auth_token"] ) {
+            std::string strInfo( "no getui auth token, wait for refresh" );
+            pConnection->logWarning( strInfo );
+            return 1;
+        }
+
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*( pConnection->reqData ))["payload"].GetString());
 
-        std::string authHeader = "Authorization: key=";
-        authHeader += conf["app_key"].as<std::string>();
+        std::string typeHeader = "Content-Type: application/json";
+        std::string authHeader = "authtoken:";
+        authHeader += conf["auth_token"].as<std::string>();
 
         struct curl_slist *curlHeader = NULL;
+        curlHeader = curl_slist_append( curlHeader, typeHeader.c_str() );
         curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
     } else {
@@ -421,7 +426,18 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             pConnection->isSucc = true;
         }
     } else if( pConnection->strPushType == "getui" ) {
-        std::cout << pConnection->upstreamBuf->data << std::endl;
+        pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
+        if( ! pConnection->resData->IsObject() )
+        {
+            std::string strInfo( "getui result is not json" );
+            pConnection->logWarning( strInfo );
+        } else if( !pConnection->resData->HasMember("result") || (*(pConnection->resData))["result"]!="ok" ) {
+            std::string strInfo( "getui return fail: " );
+            strInfo += (char*)(pConnection->upstreamBuf->data);
+            pConnection->logWarning( strInfo );
+        } else {
+            pConnection->isSucc = true;
+        }
     } else if( pConnection->strPushType == "getui_auth" ) {
         pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
         if( ! pConnection->resData->IsObject() )
@@ -433,8 +449,7 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             strInfo += (char*)(pConnection->upstreamBuf->data);
             pConnection->logWarning( strInfo );
         } else {
-            std::string *token = new std::string( (*(pConnection->resData))["auth_token"].GetString() );
-            pConnection->conf->config["getui"]["auth_token"] = *token;
+            pConnection->conf->config["getui"]["auth_token"] = (*(pConnection->resData))["auth_token"].GetString();
             pConnection->isSucc = true;
         }
     }
