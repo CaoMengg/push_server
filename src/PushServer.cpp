@@ -258,6 +258,29 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         curlHeader = curl_slist_append( curlHeader, typeHeader.c_str() );
         curlHeader = curl_slist_append( curlHeader, authHeader.c_str() );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+    } else if( pConnection->strPushType == "bbserver" ) {
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, (*( pConnection->reqData ))["token"].GetString());
+
+        std::string strDecode;
+        Base64::Decode((*( pConnection->reqData ))["payload"].GetString(), &strDecode);
+
+        // 解析msgpack
+        /* msgpack::object_handle ohMsgpack = msgpack::unpack((const char*)(strDecode.data()), strDecode.size());
+        msgpack::object objMsgpack = ohMsgpack.get();
+        std::ostringstream osMsgpack;
+        osMsgpack << objMsgpack;
+        std::string strMsgpack = osMsgpack.str();
+        DLOG(INFO) << "recv msgpack: " << strMsgpack; */
+
+        std::string typeHeader = "Content-Type: text/xml";
+        std::string lenHeader = "Content-Length: " + strDecode.size();
+        struct curl_slist *curlHeader = NULL;
+        curlHeader = curl_slist_append( curlHeader, typeHeader.c_str() );
+        curlHeader = curl_slist_append( curlHeader, lenHeader.c_str() );
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, strDecode.data());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDSIZE, strDecode.size());
     } else {
         std::string strInfo( "unsurpported push type" );
         pConnection->logWarning( strInfo );
@@ -283,6 +306,12 @@ void shutdownCallback( uv_shutdown_t* req, int status ) {
     DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
     SocketConnection* pConnection = (SocketConnection *)(req->data);
 
+    /* if( status < 0 ) {
+        std::string strInfo( "shutdown fail, error:" );
+        strInfo += uv_strerror( status );
+        pConnection->logWarning( strInfo );
+    } */
+
     if( pConnection->clientWatcher != NULL )
     {
         uv_close( (uv_handle_t *)(pConnection->clientWatcher), uvCloseCB );
@@ -295,11 +324,6 @@ void shutdownCallback( uv_shutdown_t* req, int status ) {
         pConnection->clientTimer = NULL;
     }
 
-    if( status < 0 ) {
-        std::string strInfo( "shutdown fail, error:" );
-        strInfo += uv_strerror( status );
-        pConnection->logWarning( strInfo );
-    }
     pConnection->tryDestroy();
 }
 
@@ -396,9 +420,6 @@ void readCallBack( uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf )
 // 解析上游response
 void PushServer::parseResponse( SocketConnection *pConnection )
 {
-    pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
-    DLOG(INFO) << "DEBUG: recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
-
     if( pConnection->strPushType == "apns" )
     {
         long httpCode = 0;
@@ -408,11 +429,14 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             std::string strInfo( "apns return fail http_code:" );
             strInfo += httpCode + " ";
             strInfo += (char*)(pConnection->upstreamBuf->data);
+            strInfo += '\0';
             pConnection->logWarning( strInfo );
         } else {
             pConnection->isSucc = true;
         }
     } else if( pConnection->strPushType == "xiaomi" ) {
+        pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
+        DLOG(INFO) << "DEBUG: recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
         pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
         if( ! pConnection->resData->IsObject() )
         {
@@ -426,6 +450,8 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             pConnection->isSucc = true;
         }
     } else if( pConnection->strPushType == "getui" ) {
+        pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
+        DLOG(INFO) << "DEBUG: recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
         pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
         if( ! pConnection->resData->IsObject() )
         {
@@ -439,6 +465,8 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             pConnection->isSucc = true;
         }
     } else if( pConnection->strPushType == "getui_auth" ) {
+        pConnection->upstreamBuf->data[ pConnection->upstreamBuf->intLen ] = '\0';
+        DLOG(INFO) << "DEBUG: recv response from " << pConnection->strPushType << ":" << pConnection->upstreamBuf->data;
         pConnection->resData->Parse( (const char*)(pConnection->upstreamBuf->data) );
         if( ! pConnection->resData->IsObject() )
         {
@@ -450,6 +478,25 @@ void PushServer::parseResponse( SocketConnection *pConnection )
             pConnection->logWarning( strInfo );
         } else {
             pConnection->conf->config["getui"]["auth_token"] = (*(pConnection->resData))["auth_token"].GetString();
+            pConnection->isSucc = true;
+        }
+    } else if( pConnection->strPushType == "bbserver" ) {
+        msgpack::object_handle ohMsgpack = msgpack::unpack((const char*)(pConnection->upstreamBuf->data), pConnection->upstreamBuf->intLen);
+        msgpack::object objMsgpack = ohMsgpack.get();
+        std::ostringstream osMsgpack;
+        osMsgpack << objMsgpack;
+        std::string strMsgpack = osMsgpack.str();
+        DLOG(INFO) << "DEBUG: recv response from " << pConnection->strPushType << ":" << strMsgpack;
+        pConnection->resData->Parse( (const char*)(strMsgpack.c_str()) );
+        if( ! pConnection->resData->IsObject() )
+        {
+            std::string strInfo( "bbserver result is not json" );
+            pConnection->logWarning( strInfo );
+        } else if( !pConnection->resData->HasMember("error") || (*(pConnection->resData))["error"]["errno"]!=200 ) {
+            std::string strInfo( "bbserver return fail: " );
+            strInfo += strMsgpack;
+            pConnection->logWarning( strInfo );
+        } else {
             pConnection->isSucc = true;
         }
     }

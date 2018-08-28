@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <iostream>
+#include <sstream>
 #include <map>
 
 #include "rapidjson/document.h"
@@ -22,6 +23,8 @@
 #include "openssl/sha.h"
 #include "uv.h"
 #include "curl/curl.h"
+#include "base64.h"
+#include "msgpack.hpp"
 #include "GLog.h"
 #include "YamlConf.h"
 #include "SocketConnection.h"

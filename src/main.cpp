@@ -13,7 +13,7 @@ int main()
     }
     LOG(INFO) << "libcurl version " << curl_version();
     LOG(INFO) << "libuv version " << uv_version_string();
-    LOG(INFO) << "server version 0.3.0";
+    LOG(INFO) << "server version 0.4.2";
 
     PushServer::getInstance()->start();
     return 0;

@@ -17,3 +17,5 @@ getui:
     app_key: "7rVNopw0N374UJAueXEfW1"
     master_secret: "IFsiCafsoR7Ln6vBbwS9d9"
     timeout: 2000
+bbserver:
+    timeout: 200
