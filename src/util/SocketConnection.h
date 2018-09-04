@@ -24,116 +24,117 @@ enum enumConnectionStatus
     csClosing,
 };
 
-void uvCloseCB( uv_handle_t* handle );
+void uvCloseCB(uv_handle_t *handle);
 
 class SocketConnection
 {
-    public:
-        SocketConnection( uv_loop_t *loop, CURLM *multi )
+  public:
+    SocketConnection(uv_loop_t *loop, CURLM *multi)
+    {
+        pLoop = loop;
+        pMulti = multi;
+        inBuf = new SocketBuffer(4096);
+        upstreamBuf = new SocketBuffer(4096);
+
+        clientWatcher = new uv_tcp_t();
+        clientWatcher->data = this;
+        uv_tcp_init(pLoop, clientWatcher);
+
+        clientTimer = new uv_timer_t();
+        clientTimer->data = this;
+        uv_timer_init(pLoop, clientTimer);
+
+        httpParser = new http_parser;
+        http_parser_init(httpParser, HTTP_REQUEST);
+        httpParser->data = this;
+
+        writeReq = new uv_write_t();
+        writeReq->data = this;
+
+        shutdownReq = new uv_shutdown_t();
+        shutdownReq->data = this;
+
+        reqData = new rapidjson::Document();
+        resData = new rapidjson::Document();
+    }
+
+    ~SocketConnection()
+    {
+        logNotice();
+        delete inBuf;
+        delete upstreamBuf;
+
+        if (clientWatcher != NULL)
         {
-            pLoop = loop;
-            pMulti = multi;
-            inBuf = new SocketBuffer( 4096 );
-            upstreamBuf = new SocketBuffer( 4096 );
-
-            clientWatcher = new uv_tcp_t();
-            clientWatcher->data = this;
-            uv_tcp_init( pLoop, clientWatcher );
-
-            clientTimer = new uv_timer_t();
-            clientTimer->data = this;
-            uv_timer_init( pLoop, clientTimer );
-
-            httpParser = new http_parser;
-            http_parser_init( httpParser, HTTP_REQUEST );
-            httpParser->data = this;
-
-            writeReq = new uv_write_t();
-            writeReq->data = this;
-
-            shutdownReq = new uv_shutdown_t();
-            shutdownReq->data = this;
-
-            reqData = new rapidjson::Document();
-            resData = new rapidjson::Document();
+            uv_close((uv_handle_t *)clientWatcher, uvCloseCB);
+        }
+        if (clientTimer != NULL)
+        {
+            uv_close((uv_handle_t *)clientTimer, uvCloseCB);
+        }
+        if (upstreamHandle != NULL)
+        {
+            //curl_multi_remove_handle( pMulti, upstreamHandle );
+            curl_easy_cleanup(upstreamHandle);
         }
 
-        ~SocketConnection()
+        delete httpParser;
+        delete writeReq;
+        delete shutdownReq;
+        delete reqData;
+        delete resData;
+    }
+
+    void tryDestroy()
+    {
+        if (--refcount == 0)
         {
-            logNotice();
-            delete inBuf;
-            delete upstreamBuf;
-
-            if( clientWatcher != NULL )
-            {
-                uv_close( (uv_handle_t *)clientWatcher, uvCloseCB );
-            }
-            if( clientTimer != NULL ) {
-                uv_close( (uv_handle_t *)clientTimer, uvCloseCB );
-            }
-            if( upstreamHandle != NULL )
-            {
-                //curl_multi_remove_handle( pMulti, upstreamHandle );
-                curl_easy_cleanup( upstreamHandle );
-            }
-
-            delete httpParser;
-            delete writeReq;
-            delete shutdownReq;
-            delete reqData;
-            delete resData;
+            delete this;
         }
+    }
 
-        void tryDestroy()
-        {
-            if( --refcount == 0 ) {
-                delete this;
-            }
-        }
+    void logNotice()
+    {
+        LOG(INFO) << "NOTICE: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc;
+    }
 
-        void logNotice()
-        {
-            LOG(INFO) << "NOTICE: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc;
-        }
+    void logWarning(std::string strInfo)
+    {
+        LOG(WARNING) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
+    }
 
-        void logWarning( std::string strInfo )
-        {
-            LOG(WARNING) << "WARNING: app_name:" << strAppName << " push_type:" << strPushType << " is_succ:" << isSucc << " " << strInfo;
-        }
+    enumConnectionStatus status = csInit;
+    int upstreamFd = 0;
+    int refcount = 1;
 
+    uv_loop_t *pLoop = NULL;
+    SocketBuffer *inBuf = NULL;
+    SocketBuffer *upstreamBuf = NULL;
 
-        enumConnectionStatus status = csInit;
-        int upstreamFd = 0;
-        int refcount = 1;
+    uv_tcp_t *clientWatcher = NULL;
+    uv_timer_t *clientTimer = NULL;
 
-        uv_loop_t *pLoop = NULL;
-        SocketBuffer *inBuf = NULL;
-        SocketBuffer *upstreamBuf = NULL;
+    http_parser_settings httpParserSettings;
+    http_parser *httpParser = NULL;
 
-        uv_tcp_t *clientWatcher = NULL;
-        uv_timer_t *clientTimer = NULL;
+    CURLM *pMulti = NULL;
+    CURL *upstreamHandle = NULL;
+    uv_poll_t *upstreamWatcher = NULL;
 
-        http_parser_settings httpParserSettings;
-        http_parser *httpParser = NULL;
+    uv_write_t *writeReq = NULL;
+    uv_buf_t uvOutBuf;
+    uv_shutdown_t *shutdownReq;
 
-        CURLM *pMulti = NULL;
-        CURL *upstreamHandle = NULL;
-        uv_poll_t *upstreamWatcher = NULL;
+    rapidjson::Document *reqData = NULL;
+    rapidjson::Document *resData = NULL;
+    std::string strAppName = "";
+    std::string strPushType = "";
+    std::string strReqSucc = "{\"errno\":0}";
+    bool isSucc = false;
+    YamlConf *conf = NULL;
 
-        uv_write_t *writeReq = NULL;
-        uv_buf_t uvOutBuf;
-        uv_shutdown_t *shutdownReq;
-
-        rapidjson::Document *reqData = NULL;
-        rapidjson::Document *resData = NULL;
-        std::string strAppName = "";
-        std::string strPushType = "";
-        std::string strReqSucc = "{\"errno\":0}";
-        bool isSucc = false;
-        YamlConf *conf = NULL;
-
-        long readTimeout = 100;
-        long writeTimeout = 100;
+    long readTimeout = 100;
+    long writeTimeout = 100;
 };
 
 #endif

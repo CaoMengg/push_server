@@ -6,23 +6,26 @@
 
 class SocketBuffer
 {
-    public:
-        SocketBuffer( int intBufferSize ) {
-            intSize = intBufferSize;
-            data = new unsigned char[intSize];
+  public:
+    SocketBuffer(int intBufferSize)
+    {
+        intSize = intBufferSize;
+        data = new unsigned char[intSize];
+    }
+    ~SocketBuffer()
+    {
+        if (data)
+        {
+            delete[] data;
         }
-        ~SocketBuffer() {
-            if( data ) {
-                delete[] data;
-            }
-        }
-        void enlarge();
+    }
+    void enlarge();
 
-        unsigned char *data = NULL;
-        int intSize = 0;
-        int intLen = 0;
-        int intExpectLen = 0;
-        int intSentLen = 0;
+    unsigned char *data = NULL;
+    int intSize = 0;
+    int intLen = 0;
+    int intExpectLen = 0;
+    int intSentLen = 0;
 };
 
 #endif

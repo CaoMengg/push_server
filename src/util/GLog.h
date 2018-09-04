@@ -5,6 +5,6 @@
 #include <string>
 #include "glog/include/logging.h"
 
-void initGLog( const char *logName );
+void initGLog(const char *logName);
 
 #endif
