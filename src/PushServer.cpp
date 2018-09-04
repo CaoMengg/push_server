@@ -272,15 +272,18 @@ int PushServer::getConnectionHandle( SocketConnection *pConnection )
         std::string strMsgpack = osMsgpack.str();
         DLOG(INFO) << "recv msgpack: " << strMsgpack; */
 
-        std::string typeHeader = "Content-Type: text/xml";
-        std::string lenHeader = "Content-Length: " + strDecode.size();
+        std::ostringstream lenHeader;
+        lenHeader << "Content-Length: " << strDecode.size();
         struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append( curlHeader, typeHeader.c_str() );
-        curlHeader = curl_slist_append( curlHeader, lenHeader.c_str() );
+        curlHeader = curl_slist_append( curlHeader, "Content-Type: application/octet-stream" );
+        curlHeader = curl_slist_append( curlHeader, "Expect:" ); // disable libcurl 100 continue
+        curlHeader = curl_slist_append( curlHeader, lenHeader.str().c_str() );
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
 
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, strDecode.data());
+        // must set size before data
+        strDecode += '\0';
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDSIZE, strDecode.size());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_COPYPOSTFIELDS, strDecode.data());
     } else {
         std::string strInfo( "unsurpported push type" );
         pConnection->logWarning( strInfo );
