@@ -65,6 +65,7 @@ $arrData = array(
 
 
 $strMsg = json_encode($arrData);
+$strMsg = '{"app_name":"xsb","push_type":"apns","token":"803dcab522e9bc3e672bc42048a117ed86225b7217074f116cac3affe1e9eb70","payload":"{\"aps\":{\"alert\":{\"body\":\"\\u4f60\\u5173\\u6ce8\\u7684\\u547d\\u4e2dyou\\u6b63\\u5728\\u76f4\\u64ad\",\"launch-image\":\"icon_120\"},\"sound\":\"default\",\"badge\":1},\"data\":{\"type\":\"zroom\",\"zId\":337}}"}';
 $strMsg .= "\0";
 
 $intLen = strlen( $strMsg );

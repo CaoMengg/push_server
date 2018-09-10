@@ -35,7 +35,7 @@ int PushServer::_LoadConf()
         std::string confFile = "conf/" + it->second.as<std::string>();
         appConf = new YamlConf(confFile);
         mapConf[it->first.as<std::string>()] = appConf;
-        DLOG(INFO) << "DEBUG: load app conf:" << confFile;
+        LOG(INFO) << "load app conf:" << confFile;
     }
 
     return 0;
@@ -63,6 +63,7 @@ int PushServer::getConnectionConf(SocketConnection *pConnection)
     return 0;
 }
 
+// upstream watcher管理，避免重复创建
 int PushServer::getUpstreamWatcher(SocketConnection *pConnection)
 {
     if (pConnection->upstreamFd <= 0)
@@ -95,26 +96,7 @@ int PushServer::getUpstreamWatcher(SocketConnection *pConnection)
     return 0;
 }
 
-void clientTimeoutCB(uv_timer_t *timer)
-{
-    SocketConnection *pConnection = (SocketConnection *)(timer->data);
-    std::string strInfo("client timeout");
-    pConnection->logWarning(strInfo);
-
-    if (pConnection->clientWatcher != NULL)
-    {
-        uv_close((uv_handle_t *)(pConnection->clientWatcher), uvCloseCB);
-        pConnection->clientWatcher = NULL;
-    }
-    if (pConnection->clientTimer != NULL)
-    {
-        uv_close((uv_handle_t *)(pConnection->clientTimer), uvCloseCB);
-        pConnection->clientTimer = NULL;
-    }
-
-    pConnection->tryDestroy();
-}
-
+// curl读回调, 需要完整处理realsize个字节
 static size_t curlWriteCB(void *ptr, size_t size, size_t nmemb, void *data)
 {
     size_t realsize = size * nmemb;
@@ -133,6 +115,7 @@ static size_t curlWriteCB(void *ptr, size_t size, size_t nmemb, void *data)
     return realsize;
 }
 
+// 根据推送类型，创建curl实例
 int PushServer::getConnectionHandle(SocketConnection *pConnection)
 {
     YAML::Node conf;
@@ -154,6 +137,7 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_TIMEOUT_MS, conf["timeout"].as<long>());
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYHOST, 0L);
+    // test & debug
     //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_PIPEWAIT, 1L);
     //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_VERBOSE, 1L);
     //curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_DEBUGFUNCTION, my_trace);
@@ -178,10 +162,9 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
         std::string topicHeader = "apns-topic: ";
         topicHeader += conf["topic"].as<std::string>();
 
-        struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append(curlHeader, topicHeader.c_str());
-        curlHeader = curl_slist_append(curlHeader, "apns-priority: 10");
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, topicHeader.c_str());
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, "apns-priority: 10");
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, pConnection->curlHeader);
     }
     else if (pConnection->strPushType == "xiaomi")
     {
@@ -191,12 +174,12 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
         std::string authHeader = "Authorization: key=";
         authHeader += conf["key"].as<std::string>();
 
-        struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append(curlHeader, authHeader.c_str());
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, authHeader.c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, pConnection->curlHeader);
     }
     else if (pConnection->strPushType == "getui_auth")
     {
+        // 构建请求json数据
         rapidjson::Document jsonDom;
         jsonDom.SetObject();
 
@@ -213,6 +196,7 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
         timestamp = rapidjson::StringRef(strTimestamp.c_str());
         jsonDom.AddMember("timestamp", timestamp, jsonDom.GetAllocator());
 
+        // 计算请求签名
         std::string strSignStr = strAppKey + strTimestamp + conf["master_secret"].as<std::string>();
         char buf[2];
         unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -234,12 +218,10 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         jsonDom.Accept(writer);
 
-        std::string typeHeader = "Content-Type: application/json";
-        struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append(curlHeader, typeHeader.c_str());
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, "Content-Type: application/json");
 
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api_auth"].as<std::string>().c_str());
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, pConnection->curlHeader);
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_COPYPOSTFIELDS, buffer.GetString());
     }
     else if (pConnection->strPushType == "getui")
@@ -254,14 +236,11 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_URL, conf["api"].as<std::string>().c_str());
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDS, (*(pConnection->reqData))["payload"].GetString());
 
-        std::string typeHeader = "Content-Type: application/json";
         std::string authHeader = "authtoken:";
         authHeader += conf["auth_token"].as<std::string>();
-
-        struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append(curlHeader, typeHeader.c_str());
-        curlHeader = curl_slist_append(curlHeader, authHeader.c_str());
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, "Content-Type: application/json");
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, authHeader.c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, pConnection->curlHeader);
     }
     else if (pConnection->strPushType == "bbserver")
     {
@@ -280,14 +259,14 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
 
         std::ostringstream lenHeader;
         lenHeader << "Content-Length: " << strDecode.size();
-        struct curl_slist *curlHeader = NULL;
-        curlHeader = curl_slist_append(curlHeader, "Content-Type: application/octet-stream");
-        curlHeader = curl_slist_append(curlHeader, "Expect:"); // disable libcurl 100 continue
-        curlHeader = curl_slist_append(curlHeader, lenHeader.str().c_str());
-        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, curlHeader);
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, "Content-Type: application/octet-stream");
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, "Expect:"); // disable libcurl 100 continue
+        pConnection->curlHeader = curl_slist_append(pConnection->curlHeader, lenHeader.str().c_str());
+        curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_HTTPHEADER, pConnection->curlHeader);
 
-        // must set size before data
+        // 增加\0结尾，否则导致bbserver崩溃
         strDecode += '\0';
+        // must set size before data
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_POSTFIELDSIZE, strDecode.size());
         curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_COPYPOSTFIELDS, strDecode.data());
     }
@@ -299,6 +278,27 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
     }
     DLOG(INFO) << "DEBUG: getConnectionHandle app_name:" << pConnection->strAppName << " push_type:" << pConnection->strPushType;
     return 0;
+}
+
+// 客户端读写超时
+void clientTimeoutCB(uv_timer_t *timer)
+{
+    SocketConnection *pConnection = (SocketConnection *)(timer->data);
+    std::string strInfo("client timeout");
+    pConnection->logWarning(strInfo);
+
+    if (pConnection->clientWatcher != NULL)
+    {
+        uv_close((uv_handle_t *)(pConnection->clientWatcher), uvCloseCB);
+        pConnection->clientWatcher = NULL;
+    }
+    if (pConnection->clientTimer != NULL)
+    {
+        uv_close((uv_handle_t *)(pConnection->clientTimer), uvCloseCB);
+        pConnection->clientTimer = NULL;
+    }
+
+    pConnection->tryDestroy();
 }
 
 void writeCallback(uv_write_t *req, int status)
@@ -318,6 +318,7 @@ void shutdownCallback(uv_shutdown_t *req, int status)
     DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
     SocketConnection *pConnection = (SocketConnection *)(req->data);
 
+    // 暂时注释，此段代码可能导致malloc死锁
     /* if( status < 0 ) {
         std::string strInfo( "shutdown fail, error:" );
         strInfo += uv_strerror( status );
@@ -389,7 +390,7 @@ void PushServer::parseQuery(SocketConnection *pConnection)
     }
     ++pConnection->refcount;
 
-    // return to client
+    // 请求处理成功即返回客户端
     pConnection->uvOutBuf = uv_buf_init((char *)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length());
     uv_write(pConnection->writeReq, (uv_stream_t *)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback);
     uv_timer_start(pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0);
@@ -400,6 +401,7 @@ void PushServer::readCB(SocketConnection *pConnection, ssize_t nread)
 {
     pConnection->inBuf->intLen += nread;
 
+    // 读到\0结尾认为请求结束
     if (pConnection->inBuf->data[pConnection->inBuf->intLen - 1] == '\0')
     {
         uv_read_stop((uv_stream_t *)(pConnection->clientWatcher));
@@ -434,6 +436,7 @@ void PushServer::parseResponse(SocketConnection *pConnection)
 {
     if (pConnection->strPushType == "apns")
     {
+        // apns成功时不返回任何数据，根据http code判断，200:成功，410:device不活跃
         long httpCode = 0;
         curl_easy_getinfo(pConnection->upstreamHandle, CURLINFO_RESPONSE_CODE, &httpCode);
         if (httpCode != 200 && httpCode != 410)
@@ -509,14 +512,17 @@ void PushServer::parseResponse(SocketConnection *pConnection)
         }
         else
         {
+            // 刷新auth_token
             pConnection->conf->config["getui"]["auth_token"] = (*(pConnection->resData))["auth_token"].GetString();
             pConnection->isSucc = true;
         }
     }
     else if (pConnection->strPushType == "bbserver")
     {
+        // 解析msgpack包
         msgpack::object_handle ohMsgpack = msgpack::unpack((const char *)(pConnection->upstreamBuf->data), pConnection->upstreamBuf->intLen);
         msgpack::object objMsgpack = ohMsgpack.get();
+        // 转换为json
         std::ostringstream osMsgpack;
         osMsgpack << objMsgpack;
         std::string strMsgpack = osMsgpack.str();
@@ -559,6 +565,7 @@ static void checkMultiInfo()
             SocketConnection *pConnection;
             curl_easy_getinfo(easy, CURLINFO_PRIVATE, &pConnection);
 
+            // 上游处理结束
             curl_multi_remove_handle(PushServer::getInstance()->multi, easy);
             if (pConnection->upstreamFd > 0)
             {
@@ -574,12 +581,18 @@ static void checkMultiInfo()
             }
             else
             {
+                long err_no;
+                curl_easy_getinfo(easy, CURLINFO_OS_ERRNO, &err_no);
+                std::ostringstream osInfo;
+                osInfo << "libcurl perform fail, errno:" << err_no;
+                pConnection->logWarning(osInfo.str());
                 pConnection->tryDestroy();
             }
         }
     }
 }
 
+// curl驱动
 void curlSocketCB(uv_poll_t *watcher, int status, int revents)
 {
     SocketConnection *pConnection = (SocketConnection *)(watcher->data);
@@ -606,7 +619,6 @@ static int curlSocketCallback(CURL *e, curl_socket_t s, int action, void *cbp, v
 
     if (action == CURL_POLL_REMOVE)
     {
-        //if( uv_is_active( (const uv_handle_t*)(pConnection->upstreamWatcher) ) ) {
         if (pConnection->upstreamFd > 0)
         {
             DLOG(INFO) << "DEBUG: uv_poll_stop in curlSocketCallback fd=" << s;
@@ -618,19 +630,9 @@ static int curlSocketCallback(CURL *e, curl_socket_t s, int action, void *cbp, v
 
     if (pConnection->upstreamFd <= 0)
     {
-        /*int intRet = uv_poll_init( pConnection->pLoop, pConnection->upstreamWatcher, s );
-          if( intRet < 0 )
-          {
-          std::string strInfo( "uv_poll_init, error:" );
-          strInfo += uv_strerror( intRet );
-          pConnection->logWarning( strInfo );
-          return 0;
-          }
-          DLOG(INFO) << "DEBUG: uv_poll_init fd=" << s;
-          pConnection->upstreamFd = s;*/
-
         PushServer *pPushServer = PushServer::getInstance();
         pConnection->upstreamFd = s;
+        // 集中管理watcher，同一fd重复创建watcher将导致libuv abort
         int intRet = pPushServer->getUpstreamWatcher(pConnection);
         if (intRet != 0)
         {
@@ -710,6 +712,7 @@ void acceptCallback(uv_stream_t *server, int status)
     PushServer::getInstance()->acceptCB();
 }
 
+// 刷新getui token，由定时维护调用
 void PushServer::refreshGetuiToken(std::string appName, YamlConf *appConf)
 {
     SocketConnection *pConnection = new SocketConnection(uvLoop, multi);
@@ -796,6 +799,7 @@ void PushServer::start()
         return;
     }
 
+    // 定时维护
     uv_timer_start(maintainTimer, maintainCallback, 0, 10000);
 
     LOG(INFO) << "server start, listen port " << intListenPort;

@@ -72,9 +72,11 @@ class SocketConnection
         {
             uv_close((uv_handle_t *)clientTimer, uvCloseCB);
         }
+        if (curlHeader != NULL) {
+            curl_slist_free_all(curlHeader);
+        }
         if (upstreamHandle != NULL)
         {
-            //curl_multi_remove_handle( pMulti, upstreamHandle );
             curl_easy_cleanup(upstreamHandle);
         }
 
@@ -119,6 +121,7 @@ class SocketConnection
 
     CURLM *pMulti = NULL;
     CURL *upstreamHandle = NULL;
+    struct curl_slist *curlHeader = NULL;
     uv_poll_t *upstreamWatcher = NULL;
 
     uv_write_t *writeReq = NULL;

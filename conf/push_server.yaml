@@ -5,3 +5,4 @@ apps:
     baobao_voip: "baobao_voip.yaml"
     avalon_sandbox: "avalon_sandbox.yaml"
     avalon: "avalon.yaml"
+    xsb: "xsb.yaml"
