@@ -135,6 +135,7 @@ int PushServer::getConnectionHandle(SocketConnection *pConnection)
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_PRIVATE, pConnection);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_TIMEOUT_MS, conf["timeout"].as<long>());
+    curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_ERRORBUFFER, pConnection->curlErrBuf);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(pConnection->upstreamHandle, CURLOPT_SSL_VERIFYHOST, 0L);
     // test & debug
@@ -581,10 +582,10 @@ static void checkMultiInfo()
             }
             else
             {
-                long err_no;
-                curl_easy_getinfo(easy, CURLINFO_OS_ERRNO, &err_no);
+                /* long err_no;
+                curl_easy_getinfo(easy, CURLINFO_OS_ERRNO, &err_no); */
                 std::ostringstream osInfo;
-                osInfo << "libcurl perform fail, errno:" << err_no;
+                osInfo << "libcurl perform fail, error:" << pConnection->curlErrBuf;
                 pConnection->logWarning(osInfo.str());
                 pConnection->tryDestroy();
             }

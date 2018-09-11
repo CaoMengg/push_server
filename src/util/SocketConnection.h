@@ -44,6 +44,7 @@ class SocketConnection
         clientTimer->data = this;
         uv_timer_init(pLoop, clientTimer);
 
+        curlErrBuf[0] = '\0';
         httpParser = new http_parser;
         http_parser_init(httpParser, HTTP_REQUEST);
         httpParser->data = this;
@@ -122,6 +123,7 @@ class SocketConnection
     CURLM *pMulti = NULL;
     CURL *upstreamHandle = NULL;
     struct curl_slist *curlHeader = NULL;
+    char curlErrBuf[CURL_ERROR_SIZE];
     uv_poll_t *upstreamWatcher = NULL;
 
     uv_write_t *writeReq = NULL;
