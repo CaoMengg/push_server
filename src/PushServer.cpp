@@ -299,18 +299,23 @@ void clientTimeoutCB(uv_timer_t *timer)
         pConnection->clientTimer = NULL;
     }
 
-    pConnection->tryDestroy();
+    if (pConnection->status != csResponse) {
+        pConnection->tryDestroy();
+    }
 }
 
 void writeCallback(uv_write_t *req, int status)
 {
     DLOG(INFO) << "DEBUG: write to client status:" << status;
+    SocketConnection *pConnection = (SocketConnection *)(req->data);
     if (status < 0)
     {
-        SocketConnection *pConnection = (SocketConnection *)(req->data);
         std::string strInfo("write fail, error:");
         strInfo += uv_strerror(status);
         pConnection->logWarning(strInfo);
+    }
+    if (pConnection->clientTimer != NULL) {
+        uv_timer_stop(pConnection->clientTimer);
     }
 }
 
@@ -319,12 +324,11 @@ void shutdownCallback(uv_shutdown_t *req, int status)
     DLOG(INFO) << "DEBUG: shutdown client connect status:" << status;
     SocketConnection *pConnection = (SocketConnection *)(req->data);
 
-    // 暂时注释，此段代码可能导致malloc死锁
-    /* if( status < 0 ) {
+    if (status < 0) {
         std::string strInfo( "shutdown fail, error:" );
         strInfo += uv_strerror( status );
         pConnection->logWarning( strInfo );
-    } */
+    }
 
     if (pConnection->clientWatcher != NULL)
     {
@@ -392,6 +396,7 @@ void PushServer::parseQuery(SocketConnection *pConnection)
     ++pConnection->refcount;
 
     // 请求处理成功即返回客户端
+    pConnection->status = csResponse;
     pConnection->uvOutBuf = uv_buf_init((char *)(pConnection->strReqSucc.c_str()), pConnection->strReqSucc.length());
     uv_write(pConnection->writeReq, (uv_stream_t *)(pConnection->clientWatcher), &(pConnection->uvOutBuf), 1, writeCallback);
     uv_timer_start(pConnection->clientTimer, clientTimeoutCB, pConnection->writeTimeout, 0);
@@ -546,6 +551,9 @@ void PushServer::parseResponse(SocketConnection *pConnection)
         }
     }
 
+    if (pConnection->isSucc) {
+        ++succNum;
+    }
     pConnection->tryDestroy();
     return;
 }
@@ -688,6 +696,7 @@ void uvAllocBuffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
 
 void PushServer::acceptCB()
 {
+    ++reqNum;
     SocketConnection *pConnection = new SocketConnection(uvLoop, multi);
 
     if (uv_accept((uv_stream_t *)uvServer, (uv_stream_t *)(pConnection->clientWatcher)) == 0)
@@ -735,12 +744,15 @@ void PushServer::refreshGetuiToken(std::string appName, YamlConf *appConf)
         pConnection->logWarning(strInfo);
         pConnection->tryDestroy();
     }
+    ++reqNum;
     return;
 }
 
 void PushServer::maintainCB()
 {
-    LOG(INFO) << "maintain in progress";
+    double curTime;
+    uv_uptime(&curTime);
+    LOG(INFO) << "maintain in progress, up_time:" << curTime - upTime << " req_num:" << reqNum << " succNum:" << succNum;
 
     YamlConf *appConf = NULL;
     for (confIterator it = mapConf.begin(); it != mapConf.end(); ++it)
@@ -761,6 +773,8 @@ void maintainCallback(uv_timer_t *timer)
 
 void PushServer::start()
 {
+    uv_uptime(&upTime);
+
     int intRet;
     intRet = _LoadConf();
     if (intRet != 0)

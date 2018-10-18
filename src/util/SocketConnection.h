@@ -21,6 +21,7 @@ enum enumConnectionStatus
     csInit,
     csAccepted,
     csConnected,
+    csResponse,
     csClosing,
 };
 

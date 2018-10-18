@@ -85,6 +85,9 @@ class PushServer
     uv_loop_t *uvLoop = NULL;
     uv_tcp_t *uvServer = NULL;
 
+    double upTime = 0;
+    double reqNum = 0;
+    double succNum = 0;
     uv_timer_t *maintainTimer = NULL;
 
     CURLM *multi = NULL;
