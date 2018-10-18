@@ -1,0 +1,11 @@
+xiaomi:
+    api: "https://api.xmpush.xiaomi.com/v2/message/regid"
+    key: "iFPltW90bSrdzVH5mhCD9g=="
+    timeout: 2000
+apns:
+    api: "https://api.push.apple.com:443/3/device/"
+    topic: "cn.myhug.yidou"
+    cert_file: "data/xsb/apns_cert.pem"
+    key_file: "data/xsb/apns_key.pem"
+    cert_password: "123456"
+    timeout: 5000
